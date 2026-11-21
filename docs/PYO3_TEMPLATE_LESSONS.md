@@ -60,9 +60,11 @@ A reusable engineering playbook for building high-performance, Rust-backed Pytho
 ### Trusted Publishing (OIDC) Instead of Long-Lived PyPI Tokens
 - Use `pypa/gh-action-pypi-publish@release/v1` in a dedicated `publish` job with `environment: name: pypi` and `permissions: id-token: write`. No `PYPI_API_TOKEN` secret is needed.
 
-### Clippy + Ruff Enforcement
+### Clippy + Ruff Enforcement & CI Traps
 - Run `cargo clippy --all-targets -- -D warnings` and `ruff check .` in CI so Rust warnings and Python lint issues never drift.
 - Use `Swatinem/rust-cache@v2` in GitHub Actions to avoid recompiling `pyo3` and `syn` from scratch on every PR.
+- **Do not pass `--locked` to `cargo test` if `Cargo.lock` is in `.gitignore`**: Cargo will fail with `cannot create the lock file Cargo.lock` in CI.
+- **Avoid `maturin develop` on bare `actions/setup-python` runners**: `maturin develop` requires an active virtualenv (`VIRTUAL_ENV` or `.venv`), which `setup-python` does not create. Use `maturin build --release --out dist` followed by `pip install --force-reinstall --no-deps dist/*.whl` for cross-platform CI (Linux/macOS/Windows).
 
 ---
 
