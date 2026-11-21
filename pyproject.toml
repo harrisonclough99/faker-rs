@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "faker-rs"
-version = "0.4.0"
+version = "0.5.0"
 description = "A high-performance, drop-in replacement for Python's Faker library, backed by Rust and PyO3."
 readme = "README.md"
 license = { text = "MIT OR Apache-2.0" }

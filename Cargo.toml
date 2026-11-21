@@ -1,6 +1,6 @@
 [package]
 name = "faker-rs"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 description = "A high-performance, drop-in replacement for Python's Faker library, backed by Rust and PyO3."
 license = "MIT OR Apache-2.0"

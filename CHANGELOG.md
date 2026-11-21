@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-11-21
+
+### Added
+- **Date/Time objects & ranges**: `date(pattern="%Y-%m-%d")`, `date_object()`, `date_time()`, `date_between(start_date="-30y", end_date="today")`, `date_of_birth(minimum_age=0, maximum_age=115)` (+ batch `dates`, `date_objects`, `date_times`, `date_betweens`, `date_of_births`).
+
 ## [0.4.0] - 2026-11-21
 
 ### Added

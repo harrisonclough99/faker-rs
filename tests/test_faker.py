@@ -303,3 +303,31 @@ def test_finance_internet_geo_color_file() -> None:
     assert len({fake.unique.credit_card_number() for _ in range(25)}) == 25
     assert len({fake.unique.iban() for _ in range(25)}) == 25
     assert len({fake.unique.ipv6() for _ in range(25)}) == 25
+
+
+def test_date_objects_and_ranges() -> None:
+    fake = Faker(seed=505)
+
+    slash_date = fake.date(pattern="%m/%d/%Y")
+    assert re.match(r"^\d{2}/\d{2}/\d{4}$", slash_date)
+
+    d_obj = fake.date_object()
+    assert isinstance(d_obj, datetime.date) and not isinstance(d_obj, datetime.datetime)
+
+    dt_obj = fake.date_time()
+    assert isinstance(dt_obj, datetime.datetime)
+
+    between = fake.date_between(start_date="2020-01-01", end_date="2020-12-31")
+    assert datetime.date(2020, 1, 1) <= between <= datetime.date(2020, 12, 31)
+
+    dob = fake.date_of_birth(minimum_age=20, maximum_age=30)
+    assert isinstance(dob, datetime.date)
+    today = datetime.date.today()
+    age_days = (today - dob).days
+    assert 20 * 365 <= age_days <= 31 * 365
+
+    assert len(fake.dates(10, pattern="%Y/%m/%d")) == 10
+    assert all(isinstance(x, datetime.date) for x in fake.date_objects(10))
+    assert all(isinstance(x, datetime.datetime) for x in fake.date_times(10))
+    assert len(fake.date_betweens(10, start_date="-5y", end_date="today")) == 10
+    assert len(fake.date_of_births(10, minimum_age=18, maximum_age=65)) == 10

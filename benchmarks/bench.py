@@ -95,6 +95,20 @@ def main() -> None:
             rs_fake.ipv6,
             lambda: rs_fake.ipv6s(COUNT),
         ),
+        (
+            "date_object",
+            "date_objects",
+            py_fake.date_object,
+            rs_fake.date_object,
+            lambda: rs_fake.date_objects(COUNT),
+        ),
+        (
+            "date_time",
+            "date_times",
+            py_fake.date_time,
+            rs_fake.date_time,
+            lambda: rs_fake.date_times(COUNT),
+        ),
     ]
 
     print(f"Benchmarking {COUNT:,} records per provider...\n")

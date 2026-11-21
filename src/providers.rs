@@ -86,13 +86,173 @@ fn days_in_month(year: u16, month: u8) -> u8 {
 
 #[inline]
 pub fn gen_date(rng: &mut Rng) -> String {
+    gen_date_pattern(rng, "%Y-%m-%d")
+}
+
+const MONTH_ABBR: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+const MONTH_FULL: [&str; 12] = [
+    "January", "February", "March", "April", "May", "June", "July", "August", "September",
+    "October", "November", "December",
+];
+
+#[inline]
+pub fn gen_date_pattern(rng: &mut Rng, pattern: &str) -> String {
     let year = rng.u16(1970..=2026);
     let month = rng.u8(1..=12);
     let max_day = days_in_month(year, month);
     let day = rng.u8(1..=max_day);
-    let mut out = String::with_capacity(10);
-    let _ = write!(out, "{year:04}-{month:02}-{day:02}");
+    if pattern == "%Y-%m-%d" {
+        let mut out = String::with_capacity(10);
+        let _ = write!(out, "{year:04}-{month:02}-{day:02}");
+        return out;
+    }
+    let mut out = String::with_capacity(pattern.len() + 8);
+    let mut chars = pattern.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '%' {
+            match chars.next() {
+                Some('Y') => {
+                    let _ = write!(out, "{year:04}");
+                }
+                Some('y') => {
+                    let _ = write!(out, "{:02}", year % 100);
+                }
+                Some('m') => {
+                    let _ = write!(out, "{month:02}");
+                }
+                Some('d') => {
+                    let _ = write!(out, "{day:02}");
+                }
+                Some('b') => out.push_str(MONTH_ABBR[(month - 1) as usize]),
+                Some('B') => out.push_str(MONTH_FULL[(month - 1) as usize]),
+                Some(other) => {
+                    out.push('%');
+                    out.push(other);
+                }
+                None => out.push('%'),
+            }
+        } else {
+            out.push(c);
+        }
+    }
     out
+}
+
+/// Convert (year, month, day) to days since 1970-01-01 (Howard Hinnant's algorithm).
+#[inline]
+pub fn ymd_to_days(y: i32, m: u8, d: u8) -> i64 {
+    let y = y as i64 - if m <= 2 { 1 } else { 0 };
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400);
+    let m = m as i64;
+    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d as i64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// Convert days since 1970-01-01 to (year, month, day).
+#[inline]
+pub fn days_to_ymd(days: i64) -> (i32, u8, u8) {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u8;
+    let m = (mp + if mp < 10 { 3 } else { -9 }) as u8;
+    let year = (y + if m <= 2 { 1 } else { 0 }) as i32;
+    (year, m, d)
+}
+
+#[inline]
+pub fn current_utc_days() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    secs / 86_400
+}
+
+pub fn parse_date_spec(spec: &str, today_days: i64) -> i64 {
+    let s = spec.trim();
+    if s.eq_ignore_ascii_case("today") || s.eq_ignore_ascii_case("now") {
+        return today_days;
+    }
+    if let Some((y, m, d)) = parse_iso_ymd(s) {
+        return ymd_to_days(y, m, d);
+    }
+    if s.len() >= 2 {
+        let unit = s.as_bytes()[s.len() - 1];
+        if let Ok(val) = s[..s.len() - 1].parse::<i64>() {
+            return match unit {
+                b'd' => today_days + val,
+                b'w' => today_days + val * 7,
+                b'm' => today_days + val * 30,
+                b'y' => today_days + val * 365,
+                _ => today_days,
+            };
+        }
+    }
+    today_days
+}
+
+fn parse_iso_ymd(s: &str) -> Option<(i32, u8, u8)> {
+    let mut parts = s.split('-');
+    let y: i32 = parts.next()?.parse().ok()?;
+    let m: u8 = parts.next()?.parse().ok()?;
+    let d: u8 = parts.next()?.parse().ok()?;
+    if parts.next().is_some() || !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    Some((y, m, d))
+}
+
+#[inline]
+pub fn gen_ymd(rng: &mut Rng) -> (i32, u8, u8) {
+    let year = rng.i32(1970..=2026);
+    let month = rng.u8(1..=12);
+    let day = rng.u8(1..=days_in_month(year as u16, month));
+    (year, month, day)
+}
+
+#[inline]
+pub fn gen_ymdhms(rng: &mut Rng) -> (i32, u8, u8, u8, u8, u8) {
+    let (y, m, d) = gen_ymd(rng);
+    let hh = rng.u8(0..=23);
+    let mm = rng.u8(0..=59);
+    let ss = rng.u8(0..=59);
+    (y, m, d, hh, mm, ss)
+}
+
+#[inline]
+pub fn gen_date_between_days(rng: &mut Rng, start_days: i64, end_days: i64) -> (i32, u8, u8) {
+    if start_days >= end_days {
+        return days_to_ymd(start_days);
+    }
+    let picked = rng.i64(start_days..=end_days);
+    days_to_ymd(picked)
+}
+
+#[inline]
+pub fn gen_date_of_birth(
+    rng: &mut Rng,
+    today_days: i64,
+    minimum_age: u32,
+    maximum_age: u32,
+) -> (i32, u8, u8) {
+    let (min_a, max_a) = if minimum_age > maximum_age {
+        (maximum_age, minimum_age)
+    } else {
+        (minimum_age, maximum_age)
+    };
+    let end_days = today_days - (min_a as i64) * 365;
+    let start_days = today_days - ((max_a as i64) + 1) * 365 + 1;
+    gen_date_between_days(rng, start_days, end_days)
 }
 
 const HEX_LOWER: &[u8; 16] = b"0123456789abcdef";
@@ -923,5 +1083,22 @@ mod tests {
 
         assert!(gen_file_name(&mut rng, None).contains('.'));
         assert!(gen_mime_type(&mut rng).contains('/'));
+    }
+
+    #[test]
+    fn date_patterns_and_calendar_math_valid() {
+        let mut rng = Rng::with_seed(5050);
+        let d = gen_date_pattern(&mut rng, "%m/%d/%Y");
+        assert_eq!(d.len(), 10);
+        assert_eq!(&d[2..3], "/");
+        assert_eq!(&d[5..6], "/");
+
+        assert_eq!(days_to_ymd(0), (1970, 1, 1));
+        assert_eq!(ymd_to_days(1970, 1, 1), 0);
+        assert_eq!(days_to_ymd(ymd_to_days(2024, 2, 29)), (2024, 2, 29));
+
+        let today = ymd_to_days(2026, 11, 21);
+        let dob = gen_date_of_birth(&mut rng, today, 18, 30);
+        assert!((1995..=2009).contains(&dob.0));
     }
 }

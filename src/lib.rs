@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use fastrand::Rng;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyList, PyTuple};
+use pyo3::types::{PyDate, PyDateTime, PyList, PyTuple};
 
 use crate::unique::{SeenMap, UniqueProxy, UniquenessException};
 
@@ -190,8 +190,46 @@ impl Faker {
         self.with_rng(providers::gen_ipv4)
     }
 
-    fn date(&self) -> String {
-        self.with_rng(providers::gen_date)
+    #[pyo3(signature = (pattern="%Y-%m-%d"))]
+    fn date(&self, pattern: &str) -> String {
+        self.with_rng(|rng| providers::gen_date_pattern(rng, pattern))
+    }
+
+    fn date_object<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDate>> {
+        let (y, m, d) = self.with_rng(providers::gen_ymd);
+        PyDate::new(py, y, m, d)
+    }
+
+    fn date_time<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDateTime>> {
+        let (y, m, d, hh, mm, ss) = self.with_rng(providers::gen_ymdhms);
+        PyDateTime::new(py, y, m, d, hh, mm, ss, 0, None)
+    }
+
+    #[pyo3(signature = (start_date="-30y", end_date="today"))]
+    fn date_between<'py>(
+        &self,
+        py: Python<'py>,
+        start_date: &str,
+        end_date: &str,
+    ) -> PyResult<Bound<'py, PyDate>> {
+        let today = providers::current_utc_days();
+        let s = providers::parse_date_spec(start_date, today);
+        let e = providers::parse_date_spec(end_date, today);
+        let (y, m, d) = self.with_rng(|rng| providers::gen_date_between_days(rng, s, e));
+        PyDate::new(py, y, m, d)
+    }
+
+    #[pyo3(signature = (minimum_age=0, maximum_age=115))]
+    fn date_of_birth<'py>(
+        &self,
+        py: Python<'py>,
+        minimum_age: u32,
+        maximum_age: u32,
+    ) -> PyResult<Bound<'py, PyDate>> {
+        let today = providers::current_utc_days();
+        let (y, m, d) =
+            self.with_rng(|rng| providers::gen_date_of_birth(rng, today, minimum_age, maximum_age));
+        PyDate::new(py, y, m, d)
     }
 
     fn iso8601(&self) -> String {
@@ -513,8 +551,84 @@ impl Faker {
         self.batch_values(py, n, providers::gen_ipv4)
     }
 
-    fn dates<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
-        self.batch_values(py, n, providers::gen_date)
+    #[pyo3(signature = (n, pattern="%Y-%m-%d"))]
+    fn dates<'py>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+        pattern: &str,
+    ) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, |rng| providers::gen_date_pattern(rng, pattern))
+    }
+
+    fn date_objects<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
+        let mut guard = self.state.lock().expect("faker-rs RNG mutex poisoned");
+        guard.sync_global_seed();
+        let rng = &mut guard.rng;
+        let items = (0..n)
+            .map(|_| {
+                let (y, m, d) = providers::gen_ymd(rng);
+                PyDate::new(py, y, m, d)
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        PyList::new(py, items)
+    }
+
+    fn date_times<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
+        let mut guard = self.state.lock().expect("faker-rs RNG mutex poisoned");
+        guard.sync_global_seed();
+        let rng = &mut guard.rng;
+        let items = (0..n)
+            .map(|_| {
+                let (y, m, d, hh, mm, ss) = providers::gen_ymdhms(rng);
+                PyDateTime::new(py, y, m, d, hh, mm, ss, 0, None)
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        PyList::new(py, items)
+    }
+
+    #[pyo3(signature = (n, start_date="-30y", end_date="today"))]
+    fn date_betweens<'py>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+        start_date: &str,
+        end_date: &str,
+    ) -> PyResult<Bound<'py, PyList>> {
+        let today = providers::current_utc_days();
+        let s = providers::parse_date_spec(start_date, today);
+        let e = providers::parse_date_spec(end_date, today);
+        let mut guard = self.state.lock().expect("faker-rs RNG mutex poisoned");
+        guard.sync_global_seed();
+        let rng = &mut guard.rng;
+        let items = (0..n)
+            .map(|_| {
+                let (y, m, d) = providers::gen_date_between_days(rng, s, e);
+                PyDate::new(py, y, m, d)
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        PyList::new(py, items)
+    }
+
+    #[pyo3(signature = (n, minimum_age=0, maximum_age=115))]
+    fn date_of_births<'py>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+        minimum_age: u32,
+        maximum_age: u32,
+    ) -> PyResult<Bound<'py, PyList>> {
+        let today = providers::current_utc_days();
+        let mut guard = self.state.lock().expect("faker-rs RNG mutex poisoned");
+        guard.sync_global_seed();
+        let rng = &mut guard.rng;
+        let items = (0..n)
+            .map(|_| {
+                let (y, m, d) = providers::gen_date_of_birth(rng, today, minimum_age, maximum_age);
+                PyDate::new(py, y, m, d)
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        PyList::new(py, items)
     }
 
     fn iso8601s<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
