@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "faker-rs"
-version = "0.2.0"
+version = "0.2.1"
 description = "A high-performance, drop-in replacement for Python's Faker library, backed by Rust and PyO3."
 readme = "README.md"
 license = { text = "MIT OR Apache-2.0" }
@@ -20,6 +20,8 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Programming Language :: Rust",
     "Topic :: Software Development :: Testing",
 ]

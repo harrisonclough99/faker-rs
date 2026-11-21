@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-11-21
+
+### Changed
+- Upgraded `pyo3` to `0.30` for native Python 3.14 and 3.15 support (including source builds on Python 3.15.2).
+- Added Python `3.14` and `3.15` PyPI classifiers and added Python `3.15` to the CI test matrix.
+
 ## [0.2.0] - 2026-11-21
 
 ### Added
