@@ -15,7 +15,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 fastrand = "2.3"
-pyo3 = { version = "0.23", features = ["abi3-py39"] }
+pyo3 = { version = "0.30", features = ["abi3-py39"] }
 
 [profile.release]
 lto = "thin"
