@@ -4,7 +4,7 @@ import re
 import uuid
 
 import pytest
-from faker_rs import Faker, UniquenessException, __version__
+from faker_rs import BaseProvider, Faker, UniquenessException, __version__
 from faker_rs.exceptions import UniquenessException as ExcFromSubmodule
 
 
@@ -331,3 +331,29 @@ def test_date_objects_and_ranges() -> None:
     assert all(isinstance(x, datetime.datetime) for x in fake.date_times(10))
     assert len(fake.date_betweens(10, start_date="-5y", end_date="today")) == 10
     assert len(fake.date_of_births(10, minimum_age=18, maximum_age=65)) == 10
+
+
+def test_locales_optional_and_add_provider() -> None:
+    fr = Faker("fr_FR", seed=606)
+    assert fr.locales == ["fr_FR"]
+    assert isinstance(fr.name(), str)
+    assert isinstance(fr.city(), str)
+
+    multi = Faker(["en_GB", "ja_JP"], seed=607)
+    assert multi.locales == ["en_GB", "ja_JP"]
+    assert len(multi.names(20)) == 20
+
+    # Optional proxy
+    assert fr.optional.email(p=1.0) is not None
+    assert fr.optional.email(p=0.0) is None
+    results = [fr.optional.random_int(1, 10, p=0.5) for _ in range(100)]
+    assert any(r is None for r in results) and any(r is not None for r in results)
+
+    # Custom provider via add_provider
+    class CustomProvider(BaseProvider):
+        def custom_token(self) -> str:
+            return f"tok-{self.generator.numerify('####')}"
+
+    fr.add_provider(CustomProvider)
+    tok = fr.custom_token()  # type: ignore[attr-defined]
+    assert re.match(r"^tok-\d{4}$", tok)

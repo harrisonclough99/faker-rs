@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-11-21
+
+### Added
+- **Multi-locale support**: Built-in localized datasets for `en_US`, `en_GB`, `de_DE`, `fr_FR`, `es_ES`, and `ja_JP` (`Faker("de_DE")`, `Faker(["en_US", "fr_FR"])`, `fake.locales`).
+- **`fake.optional` proxy**: Returns `None` with probability `1 - p` (`fake.optional.email(p=0.5)`).
+- **Custom providers**: Added `BaseProvider` (`faker_rs.providers.BaseProvider`) and `fake.add_provider(...)` for drop-in custom Python providers.
+
 ## [0.5.0] - 2026-11-21
 
 ### Added

@@ -8,6 +8,7 @@ use crate::data::{
     LAST_NAMES, LOREM_WORDS, MIME_TYPES, SECONDARY_PREFIXES, STATES, STREET_NAMES,
     STREET_SUFFIXES, TLDS, USER_AGENTS,
 };
+use crate::locale::{LocaleData, EN_US};
 
 #[inline]
 fn pick<'a>(rng: &mut Rng, slice: &'a [&'a str]) -> &'a str {
@@ -15,14 +16,94 @@ fn pick<'a>(rng: &mut Rng, slice: &'a [&'a str]) -> &'a str {
 }
 
 #[inline]
-pub fn gen_name(rng: &mut Rng) -> String {
-    let first = pick(rng, FIRST_NAMES);
-    let last = pick(rng, LAST_NAMES);
+pub fn gen_name_loc(rng: &mut Rng, loc: &LocaleData) -> String {
+    let first = pick(rng, loc.first_names);
+    let last = pick(rng, loc.last_names);
     let mut out = String::with_capacity(first.len() + 1 + last.len());
     out.push_str(first);
     out.push(' ');
     out.push_str(last);
     out
+}
+
+#[inline]
+pub fn gen_name(rng: &mut Rng) -> String {
+    gen_name_loc(rng, &EN_US)
+}
+
+#[inline]
+pub fn gen_first_name_loc(rng: &mut Rng, loc: &LocaleData) -> String {
+    pick(rng, loc.first_names).to_owned()
+}
+
+#[inline]
+pub fn gen_last_name_loc(rng: &mut Rng, loc: &LocaleData) -> String {
+    pick(rng, loc.last_names).to_owned()
+}
+
+#[inline]
+pub fn gen_user_name_loc(rng: &mut Rng, loc: &LocaleData) -> String {
+    let first = pick(rng, loc.first_names);
+    let last = pick(rng, loc.last_names);
+    let num = rng.u16(1..1000);
+    let mut out = String::with_capacity(first.len() + last.len() + 5);
+    for b in first.bytes() {
+        out.push(b.to_ascii_lowercase() as char);
+    }
+    out.push('.');
+    for b in last.bytes() {
+        out.push(b.to_ascii_lowercase() as char);
+    }
+    let _ = write!(out, "{num}");
+    out
+}
+
+#[inline]
+pub fn gen_email_loc(rng: &mut Rng, loc: &LocaleData) -> String {
+    let first = pick(rng, loc.first_names);
+    let last = pick(rng, loc.last_names);
+    let domain = pick(rng, EMAIL_DOMAINS);
+    let num = rng.u16(1..1000);
+    let mut out = String::with_capacity(first.len() + last.len() + domain.len() + 6);
+    for b in first.bytes() {
+        out.push(b.to_ascii_lowercase() as char);
+    }
+    out.push('.');
+    for b in last.bytes() {
+        out.push(b.to_ascii_lowercase() as char);
+    }
+    let _ = write!(out, "{num}@{domain}");
+    out
+}
+
+#[inline]
+pub fn gen_address_loc(rng: &mut Rng, loc: &LocaleData) -> String {
+    let number = rng.u16(100..10000);
+    let street = pick(rng, loc.streets);
+    let suffix = pick(rng, loc.street_suffixes);
+    let city = pick(rng, loc.cities);
+    let state = pick(rng, loc.states);
+    let zip = rng.u32(10000..99999);
+
+    let mut out = String::with_capacity(64);
+    if rng.u8(0..4) == 0 {
+        let sec = pick(rng, SECONDARY_PREFIXES);
+        let unit = rng.u16(1..999);
+        let _ = write!(out, "{number} {street} {suffix} {sec} {unit}\n{city}, {state} {zip:05}");
+    } else {
+        let _ = write!(out, "{number} {street} {suffix}\n{city}, {state} {zip:05}");
+    }
+    out
+}
+
+#[inline]
+pub fn gen_city_loc(rng: &mut Rng, loc: &LocaleData) -> String {
+    pick(rng, loc.cities).to_owned()
+}
+
+#[inline]
+pub fn gen_state_loc(rng: &mut Rng, loc: &LocaleData) -> String {
+    pick(rng, loc.states).to_owned()
 }
 
 #[inline]

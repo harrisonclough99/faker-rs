@@ -1,4 +1,6 @@
 mod data;
+mod locale;
+mod optional;
 mod providers;
 mod unique;
 
@@ -11,6 +13,8 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDate, PyDateTime, PyList, PyTuple};
 
+use crate::locale::{parse_locales, pick_locale, LocaleData};
+use crate::optional::OptionalProxy;
 use crate::unique::{SeenMap, UniqueProxy, UniquenessException};
 
 static GLOBAL_SEED: AtomicU64 = AtomicU64::new(0);
@@ -59,10 +63,11 @@ impl RngState {
 }
 
 /// High-performance drop-in replacement for Python's `faker.Faker`.
-#[pyclass(module = "faker_rs._faker_rs")]
+#[pyclass(module = "faker_rs._faker_rs", subclass)]
 pub struct Faker {
     state: Arc<Mutex<RngState>>,
     seen: Arc<Mutex<SeenMap>>,
+    locales: Vec<&'static LocaleData>,
 }
 
 impl Faker {
@@ -71,6 +76,14 @@ impl Faker {
         let mut guard = self.state.lock().expect("faker-rs RNG mutex poisoned");
         guard.sync_global_seed();
         f(&mut guard.rng)
+    }
+
+    #[inline]
+    fn with_rng_loc<T>(&self, f: impl FnOnce(&mut Rng, &'static LocaleData) -> T) -> T {
+        let mut guard = self.state.lock().expect("faker-rs RNG mutex poisoned");
+        guard.sync_global_seed();
+        let loc = pick_locale(&mut guard.rng, &self.locales);
+        f(&mut guard.rng, loc)
     }
 
     #[inline]
@@ -88,21 +101,51 @@ impl Faker {
         let rng = &mut guard.rng;
         PyList::new(py, (0..n).map(|_| gen(rng)))
     }
+
+    #[inline]
+    fn batch_values_loc<'py, T>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+        mut gen: impl FnMut(&mut Rng, &'static LocaleData) -> T,
+    ) -> PyResult<Bound<'py, PyList>>
+    where
+        T: for<'a> IntoPyObject<'a>,
+    {
+        let mut guard = self.state.lock().expect("faker-rs RNG mutex poisoned");
+        guard.sync_global_seed();
+        let rng = &mut guard.rng;
+        let locales = &self.locales;
+        PyList::new(
+            py,
+            (0..n).map(|_| {
+                let loc = pick_locale(rng, locales);
+                gen(rng, loc)
+            }),
+        )
+    }
 }
 
 #[pymethods]
 impl Faker {
     /// Create a new `Faker` instance.
     ///
-    /// Accepts optional `locale` (for drop-in compatibility) and `seed`.
+    /// Accepts optional `locale` (`str` or `list[str]`) and `seed`.
     #[new]
     #[pyo3(signature = (locale=None, seed=None))]
-    fn new(locale: Option<&str>, seed: Option<u64>) -> Self {
-        let _ = locale;
-        Self {
+    fn new(locale: Option<Bound<'_, PyAny>>, seed: Option<u64>) -> PyResult<Self> {
+        let locales = parse_locales(locale)?;
+        Ok(Self {
             state: Arc::new(Mutex::new(RngState::new(seed))),
             seen: Arc::new(Mutex::new(HashMap::new())),
-        }
+            locales,
+        })
+    }
+
+    /// Return the configured locale codes for this `Faker` instance.
+    #[getter]
+    fn locales(&self) -> Vec<&'static str> {
+        self.locales.iter().map(|l| l.code).collect()
     }
 
     /// Seed all unseeded `Faker` instances globally for deterministic output.
@@ -128,38 +171,47 @@ impl Faker {
         }
     }
 
+    /// Return a proxy that returns `None` with probability `1 - p`.
+    #[getter]
+    fn optional(&self) -> OptionalProxy {
+        OptionalProxy {
+            state: Arc::clone(&self.state),
+            locales: self.locales.clone(),
+        }
+    }
+
     // --- Single-record providers ---
 
     fn name(&self) -> String {
-        self.with_rng(providers::gen_name)
+        self.with_rng_loc(providers::gen_name_loc)
     }
 
     fn first_name(&self) -> String {
-        self.with_rng(providers::gen_first_name)
+        self.with_rng_loc(providers::gen_first_name_loc)
     }
 
     fn last_name(&self) -> String {
-        self.with_rng(providers::gen_last_name)
+        self.with_rng_loc(providers::gen_last_name_loc)
     }
 
     fn user_name(&self) -> String {
-        self.with_rng(providers::gen_user_name)
+        self.with_rng_loc(providers::gen_user_name_loc)
     }
 
     fn email(&self) -> String {
-        self.with_rng(providers::gen_email)
+        self.with_rng_loc(providers::gen_email_loc)
     }
 
     fn address(&self) -> String {
-        self.with_rng(providers::gen_address)
+        self.with_rng_loc(providers::gen_address_loc)
     }
 
     fn city(&self) -> String {
-        self.with_rng(providers::gen_city)
+        self.with_rng_loc(providers::gen_city_loc)
     }
 
     fn state(&self) -> String {
-        self.with_rng(providers::gen_state)
+        self.with_rng_loc(providers::gen_state_loc)
     }
 
     fn postcode(&self) -> String {
@@ -492,35 +544,35 @@ impl Faker {
     // --- Batch providers (single Rust loop, minimal FFI overhead) ---
 
     fn names<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
-        self.batch_values(py, n, providers::gen_name)
+        self.batch_values_loc(py, n, providers::gen_name_loc)
     }
 
     fn first_names<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
-        self.batch_values(py, n, providers::gen_first_name)
+        self.batch_values_loc(py, n, providers::gen_first_name_loc)
     }
 
     fn last_names<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
-        self.batch_values(py, n, providers::gen_last_name)
+        self.batch_values_loc(py, n, providers::gen_last_name_loc)
     }
 
     fn user_names<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
-        self.batch_values(py, n, providers::gen_user_name)
+        self.batch_values_loc(py, n, providers::gen_user_name_loc)
     }
 
     fn emails<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
-        self.batch_values(py, n, providers::gen_email)
+        self.batch_values_loc(py, n, providers::gen_email_loc)
     }
 
     fn addresses<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
-        self.batch_values(py, n, providers::gen_address)
+        self.batch_values_loc(py, n, providers::gen_address_loc)
     }
 
     fn cities<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
-        self.batch_values(py, n, providers::gen_city)
+        self.batch_values_loc(py, n, providers::gen_city_loc)
     }
 
     fn states<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
-        self.batch_values(py, n, providers::gen_state)
+        self.batch_values_loc(py, n, providers::gen_state_loc)
     }
 
     fn postcodes<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
@@ -901,6 +953,7 @@ impl Faker {
 fn _faker_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Faker>()?;
     m.add_class::<UniqueProxy>()?;
+    m.add_class::<OptionalProxy>()?;
     m.add("UniquenessException", m.py().get_type::<UniquenessException>())?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
