@@ -318,6 +318,162 @@ pub fn gen_iso8601(rng: &mut Rng) -> String {
     out
 }
 
+const ASCII_LETTERS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const PASSWORD_SPECIAL: &[u8] = b"!@#$%^&*()_+-=";
+const DIGITS: &[u8] = b"0123456789";
+
+#[inline]
+fn replace_pattern(rng: &mut Rng, pattern: &str, digits: bool, letters: bool) -> String {
+    let mut out = String::with_capacity(pattern.len());
+    for ch in pattern.chars() {
+        if digits && ch == '#' {
+            out.push((b'0' + rng.u8(0..10)) as char);
+        } else if letters && ch == '?' {
+            out.push(ASCII_LETTERS[rng.usize(..ASCII_LETTERS.len())] as char);
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+#[inline]
+pub fn gen_numerify(rng: &mut Rng, text: &str) -> String {
+    replace_pattern(rng, text, true, false)
+}
+
+#[inline]
+pub fn gen_lexify(rng: &mut Rng, text: &str) -> String {
+    replace_pattern(rng, text, false, true)
+}
+
+#[inline]
+pub fn gen_bothify(rng: &mut Rng, text: &str) -> String {
+    replace_pattern(rng, text, true, true)
+}
+
+#[inline]
+pub fn gen_pyfloat(
+    rng: &mut Rng,
+    left_digits: Option<u32>,
+    right_digits: Option<u32>,
+    positive: bool,
+    min_value: Option<f64>,
+    max_value: Option<f64>,
+) -> f64 {
+    let right = right_digits.unwrap_or_else(|| rng.u32(1..=5)).min(10);
+    let scale = 10f64.powi(right as i32);
+
+    if min_value.is_some() || max_value.is_some() {
+        let lo = min_value.unwrap_or(if positive { 0.0 } else { -10_000.0 });
+        let hi = max_value.unwrap_or(lo + 10_000.0);
+        if lo >= hi {
+            return (lo * scale).round() / scale;
+        }
+        let val = lo + rng.f64() * (hi - lo);
+        return (val * scale).round() / scale;
+    }
+
+    let left = left_digits.unwrap_or_else(|| rng.u32(1..=5)).min(12);
+    let max_int = if left == 0 {
+        0
+    } else {
+        10i64.saturating_pow(left).saturating_sub(1)
+    };
+    let int_part = if max_int == 0 {
+        0.0
+    } else {
+        rng.i64(0..=max_int) as f64
+    };
+    let frac_part = (rng.f64() * scale).floor() / scale;
+    let mut val = int_part + frac_part;
+    if !positive && rng.bool() {
+        val = -val;
+    }
+    val
+}
+
+#[inline]
+pub fn gen_pystr(rng: &mut Rng, min_chars: Option<usize>, max_chars: usize) -> String {
+    let lo = min_chars.unwrap_or(max_chars).min(max_chars);
+    let len = if lo == max_chars {
+        lo
+    } else {
+        rng.usize(lo..=max_chars)
+    };
+    let mut out = String::with_capacity(len);
+    for _ in 0..len {
+        out.push(ASCII_LETTERS[rng.usize(..ASCII_LETTERS.len())] as char);
+    }
+    out
+}
+
+#[inline]
+pub fn gen_password(
+    rng: &mut Rng,
+    length: usize,
+    special_chars: bool,
+    digits: bool,
+    upper_case: bool,
+    lower_case: bool,
+) -> String {
+    if length == 0 {
+        return String::new();
+    }
+    let mut pool = Vec::with_capacity(80);
+    if lower_case {
+        pool.extend_from_slice(&ASCII_LETTERS[..26]);
+    }
+    if upper_case {
+        pool.extend_from_slice(&ASCII_LETTERS[26..]);
+    }
+    if digits {
+        pool.extend_from_slice(DIGITS);
+    }
+    if special_chars {
+        pool.extend_from_slice(PASSWORD_SPECIAL);
+    }
+    if pool.is_empty() {
+        pool.extend_from_slice(ASCII_LETTERS);
+    }
+
+    let mut out = String::with_capacity(length);
+    for _ in 0..length {
+        out.push(pool[rng.usize(..pool.len())] as char);
+    }
+    out
+}
+
+#[inline]
+pub fn gen_word(rng: &mut Rng) -> String {
+    pick(rng, LOREM_WORDS).to_owned()
+}
+
+#[inline]
+pub fn gen_words(rng: &mut Rng, nb: usize) -> Vec<String> {
+    (0..nb).map(|_| gen_word(rng)).collect()
+}
+
+#[inline]
+pub fn gen_paragraph(rng: &mut Rng, nb_sentences: usize) -> String {
+    if nb_sentences == 0 {
+        return String::new();
+    }
+    let mut out = String::with_capacity(nb_sentences * 48);
+    for i in 0..nb_sentences {
+        if i > 0 {
+            out.push(' ');
+        }
+        out.push_str(&gen_sentence(rng));
+    }
+    out
+}
+
+#[inline]
+pub fn gen_paragraphs(rng: &mut Rng, nb: usize) -> Vec<String> {
+    (0..nb).map(|_| gen_paragraph(rng, 3)).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -429,5 +585,39 @@ mod tests {
         let iso = gen_iso8601(&mut rng);
         assert_eq!(iso.len(), 19);
         assert_eq!(&iso[10..11], "T");
+    }
+
+    #[test]
+    fn pattern_primitive_and_text_providers_valid() {
+        let mut rng = Rng::with_seed(3030);
+
+        let num = gen_numerify(&mut rng, "###-##-####");
+        assert_eq!(num.len(), 11);
+        assert!(num.chars().filter(|c| *c != '-').all(|c| c.is_ascii_digit()));
+
+        let lex = gen_lexify(&mut rng, "????");
+        assert_eq!(lex.len(), 4);
+        assert!(lex.chars().all(|c| c.is_ascii_alphabetic()));
+
+        let both = gen_bothify(&mut rng, "##??");
+        assert_eq!(both.len(), 4);
+        assert!(both[..2].chars().all(|c| c.is_ascii_digit()));
+        assert!(both[2..].chars().all(|c| c.is_ascii_alphabetic()));
+
+        for _ in 0..50 {
+            let f = gen_pyfloat(&mut rng, None, Some(2), true, Some(1.5), Some(9.5));
+            assert!((1.5..=9.5).contains(&f));
+        }
+
+        let s = gen_pystr(&mut rng, Some(5), 10);
+        assert!((5..=10).contains(&s.len()));
+
+        let pw = gen_password(&mut rng, 16, true, true, true, true);
+        assert_eq!(pw.len(), 16);
+
+        assert!(!gen_word(&mut rng).is_empty());
+        assert_eq!(gen_words(&mut rng, 5).len(), 5);
+        assert!(gen_paragraph(&mut rng, 3).ends_with('.'));
+        assert_eq!(gen_paragraphs(&mut rng, 4).len(), 4);
     }
 }

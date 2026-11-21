@@ -7,8 +7,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use fastrand::Rng;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyList;
+use pyo3::types::{PyList, PyTuple};
 
 use crate::unique::{SeenMap, UniqueProxy, UniquenessException};
 
@@ -220,6 +221,152 @@ impl Faker {
         self.with_rng(|rng| providers::gen_random_int(rng, min, max))
     }
 
+    #[pyo3(signature = (text="###"))]
+    fn numerify(&self, text: &str) -> String {
+        self.with_rng(|rng| providers::gen_numerify(rng, text))
+    }
+
+    #[pyo3(signature = (text="????"))]
+    fn lexify(&self, text: &str) -> String {
+        self.with_rng(|rng| providers::gen_lexify(rng, text))
+    }
+
+    #[pyo3(signature = (text="##??"))]
+    fn bothify(&self, text: &str) -> String {
+        self.with_rng(|rng| providers::gen_bothify(rng, text))
+    }
+
+    #[pyo3(signature = (min_value=0, max_value=9999))]
+    fn pyint(&self, min_value: i64, max_value: i64) -> i64 {
+        self.with_rng(|rng| providers::gen_random_int(rng, min_value, max_value))
+    }
+
+    #[pyo3(signature = (left_digits=None, right_digits=None, positive=false, min_value=None, max_value=None))]
+    fn pyfloat(
+        &self,
+        left_digits: Option<u32>,
+        right_digits: Option<u32>,
+        positive: bool,
+        min_value: Option<f64>,
+        max_value: Option<f64>,
+    ) -> f64 {
+        self.with_rng(|rng| {
+            providers::gen_pyfloat(rng, left_digits, right_digits, positive, min_value, max_value)
+        })
+    }
+
+    #[pyo3(signature = (truth_probability=50))]
+    fn pybool(&self, truth_probability: u8) -> bool {
+        self.with_rng(|rng| providers::gen_boolean(rng, truth_probability))
+    }
+
+    #[pyo3(signature = (min_chars=None, max_chars=20))]
+    fn pystr(&self, min_chars: Option<usize>, max_chars: usize) -> String {
+        self.with_rng(|rng| providers::gen_pystr(rng, min_chars, max_chars))
+    }
+
+    #[pyo3(signature = (length=10, special_chars=true, digits=true, upper_case=true, lower_case=true))]
+    fn password(
+        &self,
+        length: usize,
+        special_chars: bool,
+        digits: bool,
+        upper_case: bool,
+        lower_case: bool,
+    ) -> String {
+        self.with_rng(|rng| {
+            providers::gen_password(rng, length, special_chars, digits, upper_case, lower_case)
+        })
+    }
+
+    #[pyo3(signature = (elements=None))]
+    fn random_element<'py>(
+        &self,
+        py: Python<'py>,
+        elements: Option<Bound<'py, PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        let items: Vec<Py<PyAny>> = match elements {
+            Some(obj) => obj
+                .try_iter()?
+                .map(|item| item.map(|b| b.unbind()))
+                .collect::<PyResult<Vec<_>>>()?,
+            None => PyTuple::new(py, ["a", "b", "c"])?
+                .iter()
+                .map(|b| b.unbind())
+                .collect(),
+        };
+        if items.is_empty() {
+            return Err(PyValueError::new_err("Cannot choose from an empty sequence"));
+        }
+        let idx = self.with_rng(|rng| rng.usize(..items.len()));
+        Ok(items[idx].clone_ref(py))
+    }
+
+    #[pyo3(signature = (elements=None, length=None, unique=false))]
+    fn random_elements<'py>(
+        &self,
+        py: Python<'py>,
+        elements: Option<Bound<'py, PyAny>>,
+        length: Option<usize>,
+        unique: bool,
+    ) -> PyResult<Bound<'py, PyList>> {
+        let mut items: Vec<Py<PyAny>> = match elements {
+            Some(obj) => obj
+                .try_iter()?
+                .map(|item| item.map(|b| b.unbind()))
+                .collect::<PyResult<Vec<_>>>()?,
+            None => PyTuple::new(py, ["a", "b", "c"])?
+                .iter()
+                .map(|b| b.unbind())
+                .collect(),
+        };
+        if items.is_empty() {
+            return Ok(PyList::empty(py));
+        }
+        let target_len = length.unwrap_or_else(|| self.with_rng(|rng| rng.usize(1..=items.len())));
+        if unique && target_len > items.len() {
+            return Err(PyValueError::new_err(
+                "Sample larger than population when unique=True",
+            ));
+        }
+
+        let mut chosen = Vec::with_capacity(target_len);
+        self.with_rng(|rng| {
+            if unique {
+                for i in 0..target_len {
+                    let j = rng.usize(i..items.len());
+                    items.swap(i, j);
+                    chosen.push(items[i].clone_ref(py));
+                }
+            } else {
+                for _ in 0..target_len {
+                    let idx = rng.usize(..items.len());
+                    chosen.push(items[idx].clone_ref(py));
+                }
+            }
+        });
+        PyList::new(py, chosen)
+    }
+
+    fn word(&self) -> String {
+        self.with_rng(providers::gen_word)
+    }
+
+    #[pyo3(signature = (nb=3))]
+    fn words(&self, nb: usize) -> Vec<String> {
+        self.with_rng(|rng| providers::gen_words(rng, nb))
+    }
+
+    #[pyo3(signature = (nb_sentences=3))]
+    fn paragraph(&self, nb_sentences: usize) -> String {
+        self.with_rng(|rng| providers::gen_paragraph(rng, nb_sentences))
+    }
+
+    #[pyo3(signature = (nb=3))]
+    fn paragraphs(&self, nb: usize) -> Vec<String> {
+        self.with_rng(|rng| providers::gen_paragraphs(rng, nb))
+    }
+
     // --- Batch providers (single Rust loop, minimal FFI overhead) ---
 
     fn names<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
@@ -327,6 +474,122 @@ impl Faker {
         max: i64,
     ) -> PyResult<Bound<'py, PyList>> {
         self.batch_values(py, n, |rng| providers::gen_random_int(rng, min, max))
+    }
+
+    #[pyo3(signature = (n, text="###"))]
+    fn numerifys<'py>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+        text: &str,
+    ) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, |rng| providers::gen_numerify(rng, text))
+    }
+
+    #[pyo3(signature = (n, text="????"))]
+    fn lexifys<'py>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+        text: &str,
+    ) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, |rng| providers::gen_lexify(rng, text))
+    }
+
+    #[pyo3(signature = (n, text="##??"))]
+    fn bothifys<'py>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+        text: &str,
+    ) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, |rng| providers::gen_bothify(rng, text))
+    }
+
+    #[pyo3(signature = (n, min_value=0, max_value=9999))]
+    fn pyints<'py>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+        min_value: i64,
+        max_value: i64,
+    ) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, |rng| providers::gen_random_int(rng, min_value, max_value))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (n, left_digits=None, right_digits=None, positive=false, min_value=None, max_value=None))]
+    fn pyfloats<'py>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+        left_digits: Option<u32>,
+        right_digits: Option<u32>,
+        positive: bool,
+        min_value: Option<f64>,
+        max_value: Option<f64>,
+    ) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, |rng| {
+            providers::gen_pyfloat(rng, left_digits, right_digits, positive, min_value, max_value)
+        })
+    }
+
+    #[pyo3(signature = (n, truth_probability=50))]
+    fn pybools<'py>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+        truth_probability: u8,
+    ) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, |rng| providers::gen_boolean(rng, truth_probability))
+    }
+
+    #[pyo3(signature = (n, min_chars=None, max_chars=20))]
+    fn pystrs<'py>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+        min_chars: Option<usize>,
+        max_chars: usize,
+    ) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, |rng| providers::gen_pystr(rng, min_chars, max_chars))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (n, length=10, special_chars=true, digits=true, upper_case=true, lower_case=true))]
+    fn passwords<'py>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+        length: usize,
+        special_chars: bool,
+        digits: bool,
+        upper_case: bool,
+        lower_case: bool,
+    ) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, |rng| {
+            providers::gen_password(rng, length, special_chars, digits, upper_case, lower_case)
+        })
+    }
+
+    #[pyo3(signature = (n, nb=3))]
+    fn words_batch<'py>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+        nb: usize,
+    ) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, |rng| providers::gen_words(rng, nb))
+    }
+
+    #[pyo3(signature = (n, nb=3))]
+    fn paragraphs_batch<'py>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+        nb: usize,
+    ) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, |rng| providers::gen_paragraphs(rng, nb))
     }
 }
 

@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-11-21
+
+### Added
+- **Pattern & primitive helpers**: `numerify()`, `lexify()`, `bothify()`, `pyint()`, `pyfloat()`, `pybool()`, `pystr()`, `password()`, `random_element()`, `random_elements()` (+ batch `numerifys`, `lexifys`, `bothifys`, `pyints`, `pyfloats`, `pybools`, `pystrs`, `passwords`).
+- **Text providers**: `word()`, `words(nb=3)`, `paragraph(nb_sentences=3)`, `paragraphs(nb=3)` (+ batch `words_batch`, `paragraphs_batch`).
+- **Unique proxy**: Added `word`, `numerify`, `lexify`, `bothify`, `pystr`, `pyint` to `fake.unique`.
+
 ## [0.2.1] - 2026-11-21
 
 ### Changed

@@ -53,6 +53,34 @@ def main() -> None:
         ("text", "texts", py_fake.text, rs_fake.text, lambda: rs_fake.texts(COUNT)),
         ("date", "dates", py_fake.date, rs_fake.date, lambda: rs_fake.dates(COUNT)),
         ("uuid4", "uuid4s", py_fake.uuid4, rs_fake.uuid4, lambda: rs_fake.uuid4s(COUNT)),
+        (
+            "numerify",
+            "numerifys",
+            py_fake.numerify,
+            rs_fake.numerify,
+            lambda: rs_fake.numerifys(COUNT),
+        ),
+        (
+            "pyfloat",
+            "pyfloats",
+            py_fake.pyfloat,
+            rs_fake.pyfloat,
+            lambda: rs_fake.pyfloats(COUNT),
+        ),
+        (
+            "password",
+            "passwords",
+            py_fake.password,
+            rs_fake.password,
+            lambda: rs_fake.passwords(COUNT),
+        ),
+        (
+            "paragraph",
+            "paragraphs_batch",
+            py_fake.paragraph,
+            rs_fake.paragraph,
+            lambda: rs_fake.paragraphs_batch(COUNT),
+        ),
     ]
 
     print(f"Benchmarking {COUNT:,} records per provider...\n")

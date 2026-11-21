@@ -126,6 +126,35 @@ impl UniqueProxy {
         self.next_unique("uuid4", providers::gen_uuid4)
     }
 
+    fn word(&self) -> PyResult<String> {
+        self.next_unique("word", providers::gen_word)
+    }
+
+    #[pyo3(signature = (text="###"))]
+    fn numerify(&self, text: &str) -> PyResult<String> {
+        self.next_unique("numerify", |rng| providers::gen_numerify(rng, text))
+    }
+
+    #[pyo3(signature = (text="????"))]
+    fn lexify(&self, text: &str) -> PyResult<String> {
+        self.next_unique("lexify", |rng| providers::gen_lexify(rng, text))
+    }
+
+    #[pyo3(signature = (text="##??"))]
+    fn bothify(&self, text: &str) -> PyResult<String> {
+        self.next_unique("bothify", |rng| providers::gen_bothify(rng, text))
+    }
+
+    #[pyo3(signature = (min_chars=None, max_chars=20))]
+    fn pystr(&self, min_chars: Option<usize>, max_chars: usize) -> PyResult<String> {
+        self.next_unique("pystr", |rng| providers::gen_pystr(rng, min_chars, max_chars))
+    }
+
+    #[pyo3(signature = (min_value=0, max_value=9999))]
+    fn pyint(&self, min_value: i64, max_value: i64) -> PyResult<i64> {
+        self.random_int(min_value, max_value)
+    }
+
     #[pyo3(signature = (min=0, max=9999))]
     fn random_int(&self, min: i64, max: i64) -> PyResult<i64> {
         let mut rng_guard = self.state.lock().expect("faker-rs RNG mutex poisoned");

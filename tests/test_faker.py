@@ -186,3 +186,50 @@ def test_instance_seeding_isolated_from_global() -> None:
     second_run = f_inst.names(10)
 
     assert first_run == second_run
+
+
+def test_patterns_primitives_and_text() -> None:
+    fake = Faker(seed=303)
+
+    assert re.match(r"^\d{3}-\d{2}-\d{4}$", fake.numerify("###-##-####"))
+    assert re.match(r"^[a-zA-Z]{4}$", fake.lexify("????"))
+    assert re.match(r"^\d{2}[a-zA-Z]{2}$", fake.bothify("##??"))
+
+    assert 10 <= fake.pyint(min_value=10, max_value=20) <= 20
+    assert isinstance(fake.pybool(), bool)
+    assert fake.pybool(truth_probability=0) is False
+    assert fake.pybool(truth_probability=100) is True
+
+    f = fake.pyfloat(right_digits=2, positive=True, min_value=1.0, max_value=5.0)
+    assert 1.0 <= f <= 5.0
+
+    s = fake.pystr(min_chars=5, max_chars=8)
+    assert 5 <= len(s) <= 8
+
+    pw = fake.password(length=14)
+    assert len(pw) == 14
+
+    assert fake.random_element(["x", "y", "z"]) in {"x", "y", "z"}
+    sample = fake.random_elements([1, 2, 3, 4], length=3, unique=True)
+    assert len(sample) == 3 and len(set(sample)) == 3
+
+    assert isinstance(fake.word(), str)
+    assert len(fake.words(nb=5)) == 5
+    assert fake.paragraph(nb_sentences=2).endswith(".")
+    assert len(fake.paragraphs(nb=3)) == 3
+
+    # Batch methods
+    assert len(fake.numerifys(10, "###")) == 10
+    assert len(fake.lexifys(10, "???")) == 10
+    assert len(fake.bothifys(10, "#?")) == 10
+    assert len(fake.pyints(10)) == 10
+    assert len(fake.pyfloats(10)) == 10
+    assert len(fake.pybools(10)) == 10
+    assert len(fake.pystrs(10)) == 10
+    assert len(fake.passwords(10)) == 10
+    assert len(fake.words_batch(10, nb=4)) == 10
+    assert len(fake.paragraphs_batch(10, nb=2)) == 10
+
+    # Unique support
+    assert len({fake.unique.numerify("##") for _ in range(20)}) == 20
+    assert len({fake.unique.pystr(min_chars=8, max_chars=8) for _ in range(20)}) == 20
