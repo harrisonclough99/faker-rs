@@ -155,6 +155,58 @@ impl UniqueProxy {
         self.random_int(min_value, max_value)
     }
 
+    #[pyo3(signature = (card_type=None))]
+    fn credit_card_number(&self, card_type: Option<&str>) -> PyResult<String> {
+        self.next_unique("credit_card_number", |rng| {
+            providers::gen_credit_card_number(rng, card_type)
+        })
+    }
+
+    fn iban(&self) -> PyResult<String> {
+        self.next_unique("iban", providers::gen_iban)
+    }
+
+    fn currency_code(&self) -> PyResult<String> {
+        self.next_unique("currency_code", providers::gen_currency_code)
+    }
+
+    fn ipv6(&self) -> PyResult<String> {
+        self.next_unique("ipv6", providers::gen_ipv6)
+    }
+
+    fn mac_address(&self) -> PyResult<String> {
+        self.next_unique("mac_address", providers::gen_mac_address)
+    }
+
+    fn domain_name(&self) -> PyResult<String> {
+        self.next_unique("domain_name", providers::gen_domain_name)
+    }
+
+    fn slug(&self) -> PyResult<String> {
+        self.next_unique("slug", providers::gen_slug)
+    }
+
+    fn free_email(&self) -> PyResult<String> {
+        self.next_unique("free_email", providers::gen_free_email)
+    }
+
+    fn company_email(&self) -> PyResult<String> {
+        self.next_unique("company_email", providers::gen_company_email)
+    }
+
+    fn safe_email(&self) -> PyResult<String> {
+        self.next_unique("safe_email", providers::gen_safe_email)
+    }
+
+    fn hex_color(&self) -> PyResult<String> {
+        self.next_unique("hex_color", providers::gen_hex_color)
+    }
+
+    #[pyo3(signature = (extension=None))]
+    fn file_name(&self, extension: Option<&str>) -> PyResult<String> {
+        self.next_unique("file_name", |rng| providers::gen_file_name(rng, extension))
+    }
+
     #[pyo3(signature = (min=0, max=9999))]
     fn random_int(&self, min: i64, max: i64) -> PyResult<i64> {
         let mut rng_guard = self.state.lock().expect("faker-rs RNG mutex poisoned");

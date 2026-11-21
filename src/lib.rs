@@ -367,6 +367,90 @@ impl Faker {
         self.with_rng(|rng| providers::gen_paragraphs(rng, nb))
     }
 
+    #[pyo3(signature = (card_type=None))]
+    fn credit_card_number(&self, card_type: Option<&str>) -> String {
+        self.with_rng(|rng| providers::gen_credit_card_number(rng, card_type))
+    }
+
+    fn credit_card_expire(&self) -> String {
+        self.with_rng(providers::gen_credit_card_expire)
+    }
+
+    #[pyo3(signature = (card_type=None))]
+    fn credit_card_security_code(&self, card_type: Option<&str>) -> String {
+        self.with_rng(|rng| providers::gen_credit_card_security_code(rng, card_type))
+    }
+
+    fn credit_card_provider(&self) -> String {
+        self.with_rng(providers::gen_credit_card_provider)
+    }
+
+    fn iban(&self) -> String {
+        self.with_rng(providers::gen_iban)
+    }
+
+    fn currency_code(&self) -> String {
+        self.with_rng(providers::gen_currency_code)
+    }
+
+    fn ipv6(&self) -> String {
+        self.with_rng(providers::gen_ipv6)
+    }
+
+    fn mac_address(&self) -> String {
+        self.with_rng(providers::gen_mac_address)
+    }
+
+    fn domain_name(&self) -> String {
+        self.with_rng(providers::gen_domain_name)
+    }
+
+    fn user_agent(&self) -> String {
+        self.with_rng(providers::gen_user_agent)
+    }
+
+    fn slug(&self) -> String {
+        self.with_rng(providers::gen_slug)
+    }
+
+    fn free_email(&self) -> String {
+        self.with_rng(providers::gen_free_email)
+    }
+
+    fn company_email(&self) -> String {
+        self.with_rng(providers::gen_company_email)
+    }
+
+    fn safe_email(&self) -> String {
+        self.with_rng(providers::gen_safe_email)
+    }
+
+    fn hex_color(&self) -> String {
+        self.with_rng(providers::gen_hex_color)
+    }
+
+    fn rgb_color(&self) -> String {
+        self.with_rng(providers::gen_rgb_color)
+    }
+
+    fn latitude(&self) -> f64 {
+        self.with_rng(providers::gen_latitude)
+    }
+
+    fn longitude(&self) -> f64 {
+        self.with_rng(providers::gen_longitude)
+    }
+
+    #[pyo3(signature = (category=None, extension=None))]
+    fn file_name(&self, category: Option<&str>, extension: Option<&str>) -> String {
+        let _ = category;
+        self.with_rng(|rng| providers::gen_file_name(rng, extension))
+    }
+
+    fn mime_type(&self) -> String {
+        self.with_rng(providers::gen_mime_type)
+    }
+
     // --- Batch providers (single Rust loop, minimal FFI overhead) ---
 
     fn names<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
@@ -590,6 +674,112 @@ impl Faker {
         nb: usize,
     ) -> PyResult<Bound<'py, PyList>> {
         self.batch_values(py, n, |rng| providers::gen_paragraphs(rng, nb))
+    }
+
+    #[pyo3(signature = (n, card_type=None))]
+    fn credit_card_numbers<'py>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+        card_type: Option<&str>,
+    ) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, |rng| providers::gen_credit_card_number(rng, card_type))
+    }
+
+    fn credit_card_expires<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, providers::gen_credit_card_expire)
+    }
+
+    #[pyo3(signature = (n, card_type=None))]
+    fn credit_card_security_codes<'py>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+        card_type: Option<&str>,
+    ) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, |rng| {
+            providers::gen_credit_card_security_code(rng, card_type)
+        })
+    }
+
+    fn credit_card_providers<'py>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+    ) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, providers::gen_credit_card_provider)
+    }
+
+    fn ibans<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, providers::gen_iban)
+    }
+
+    fn currency_codes<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, providers::gen_currency_code)
+    }
+
+    fn ipv6s<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, providers::gen_ipv6)
+    }
+
+    fn mac_addresses<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, providers::gen_mac_address)
+    }
+
+    fn domain_names<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, providers::gen_domain_name)
+    }
+
+    fn user_agents<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, providers::gen_user_agent)
+    }
+
+    fn slugs<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, providers::gen_slug)
+    }
+
+    fn free_emails<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, providers::gen_free_email)
+    }
+
+    fn company_emails<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, providers::gen_company_email)
+    }
+
+    fn safe_emails<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, providers::gen_safe_email)
+    }
+
+    fn hex_colors<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, providers::gen_hex_color)
+    }
+
+    fn rgb_colors<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, providers::gen_rgb_color)
+    }
+
+    fn latitudes<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, providers::gen_latitude)
+    }
+
+    fn longitudes<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, providers::gen_longitude)
+    }
+
+    #[pyo3(signature = (n, category=None, extension=None))]
+    fn file_names<'py>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+        category: Option<&str>,
+        extension: Option<&str>,
+    ) -> PyResult<Bound<'py, PyList>> {
+        let _ = category;
+        self.batch_values(py, n, |rng| providers::gen_file_name(rng, extension))
+    }
+
+    fn mime_types<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values(py, n, providers::gen_mime_type)
     }
 }
 

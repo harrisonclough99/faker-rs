@@ -108,3 +108,35 @@ pub const LOREM_WORDS: &[&str] = &[
     "stream", "memory", "thread", "async", "cloud", "edge", "query", "index",
     "schema", "client", "server", "record", "batch", "event", "signal", "metric",
 ];
+
+pub const CARD_PROVIDERS: &[&str] = &["Visa", "Mastercard", "American Express", "Discover"];
+
+pub const CURRENCY_CODES: &[&str] = &[
+    "USD", "EUR", "GBP", "JPY", "CAD", "AUD", "CHF", "CNY", "SEK", "NOK", "DKK", "NZD",
+    "SGD", "HKD", "KRW", "INR", "BRL", "MXN", "PLN", "TRY",
+];
+
+pub const IBAN_PREFIXES: &[(&str, usize)] = &[
+    ("DE", 22), ("FR", 27), ("GB", 22), ("ES", 24), ("IT", 27), ("NL", 18), ("BE", 16),
+    ("CH", 21), ("SE", 24), ("NO", 15), ("PL", 28), ("PT", 25), ("AT", 20), ("IE", 22),
+];
+
+pub const FREE_EMAIL_DOMAINS: &[&str] = &["gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "proton.me"];
+
+pub const USER_AGENTS: &[&str] = &[
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
+];
+
+pub const FILE_EXTENSIONS: &[&str] = &[
+    "txt", "csv", "json", "parquet", "pdf", "png", "jpg", "svg", "mp4", "mp3", "zip", "py", "rs",
+];
+
+pub const MIME_TYPES: &[&str] = &[
+    "text/plain", "text/csv", "application/json", "application/pdf", "image/png",
+    "image/jpeg", "image/svg+xml", "video/mp4", "audio/mpeg", "application/zip",
+    "application/octet-stream", "text/html",
+];

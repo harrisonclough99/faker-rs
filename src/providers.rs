@@ -3,8 +3,10 @@ use std::fmt::Write as _;
 use fastrand::Rng;
 
 use crate::data::{
-    CITIES, COMPANY_SUFFIXES, COMPANY_WORDS, COUNTRIES, EMAIL_DOMAINS, FIRST_NAMES, JOBS,
-    LAST_NAMES, LOREM_WORDS, SECONDARY_PREFIXES, STATES, STREET_NAMES, STREET_SUFFIXES, TLDS,
+    CARD_PROVIDERS, CITIES, COMPANY_SUFFIXES, COMPANY_WORDS, COUNTRIES, CURRENCY_CODES,
+    EMAIL_DOMAINS, FILE_EXTENSIONS, FIRST_NAMES, FREE_EMAIL_DOMAINS, IBAN_PREFIXES, JOBS,
+    LAST_NAMES, LOREM_WORDS, MIME_TYPES, SECONDARY_PREFIXES, STATES, STREET_NAMES,
+    STREET_SUFFIXES, TLDS, USER_AGENTS,
 };
 
 #[inline]
@@ -474,6 +476,251 @@ pub fn gen_paragraphs(rng: &mut Rng, nb: usize) -> Vec<String> {
     (0..nb).map(|_| gen_paragraph(rng, 3)).collect()
 }
 
+// --- Finance providers ---
+
+#[inline]
+pub fn gen_credit_card_number(rng: &mut Rng, card_type: Option<&str>) -> String {
+    let (prefix, total_len) = match card_type {
+        Some("amex") => (if rng.bool() { "34" } else { "37" }, 15usize),
+        Some("mastercard") => {
+            let p = match rng.u8(0..5) {
+                0 => "51",
+                1 => "52",
+                2 => "53",
+                3 => "54",
+                _ => "55",
+            };
+            (p, 16)
+        }
+        Some("discover") => ("6011", 16),
+        Some("visa") => ("4", 16),
+        _ => match rng.u8(0..3) {
+            0 => ("4", 16),
+            1 => ("52", 16),
+            _ => ("34", 15),
+        },
+    };
+
+    let mut digits = [0u8; 16];
+    let mut len = 0;
+    for b in prefix.bytes() {
+        digits[len] = b - b'0';
+        len += 1;
+    }
+    while len + 1 < total_len {
+        digits[len] = rng.u8(0..10);
+        len += 1;
+    }
+
+    // Compute Luhn check digit.
+    let mut sum = 0u32;
+    let mut double = true;
+    for i in (0..len).rev() {
+        let mut d = digits[i] as u32;
+        if double {
+            d *= 2;
+            if d > 9 {
+                d -= 9;
+            }
+        }
+        sum += d;
+        double = !double;
+    }
+    digits[len] = ((10 - (sum % 10)) % 10) as u8;
+    len += 1;
+
+    let mut out = String::with_capacity(len);
+    for &d in &digits[..len] {
+        out.push((b'0' + d) as char);
+    }
+    out
+}
+
+#[inline]
+pub fn gen_credit_card_expire(rng: &mut Rng) -> String {
+    let month = rng.u8(1..=12);
+    let year = rng.u8(27..=34);
+    let mut out = String::with_capacity(5);
+    let _ = write!(out, "{month:02}/{year:02}");
+    out
+}
+
+#[inline]
+pub fn gen_credit_card_security_code(rng: &mut Rng, card_type: Option<&str>) -> String {
+    if card_type == Some("amex") {
+        let code = rng.u16(0..=9999);
+        let mut out = String::with_capacity(4);
+        let _ = write!(out, "{code:04}");
+        out
+    } else {
+        let code = rng.u16(0..=999);
+        let mut out = String::with_capacity(3);
+        let _ = write!(out, "{code:03}");
+        out
+    }
+}
+
+#[inline]
+pub fn gen_credit_card_provider(rng: &mut Rng) -> String {
+    pick(rng, CARD_PROVIDERS).to_owned()
+}
+
+#[inline]
+pub fn gen_iban(rng: &mut Rng) -> String {
+    let (country, total_len) = IBAN_PREFIXES[rng.usize(..IBAN_PREFIXES.len())];
+    let check = rng.u8(10..=98);
+    let mut out = String::with_capacity(total_len);
+    let _ = write!(out, "{country}{check:02}");
+    while out.len() < total_len {
+        out.push((b'0' + rng.u8(0..10)) as char);
+    }
+    out
+}
+
+#[inline]
+pub fn gen_currency_code(rng: &mut Rng) -> String {
+    pick(rng, CURRENCY_CODES).to_owned()
+}
+
+// --- Internet providers ---
+
+#[inline]
+pub fn gen_ipv6(rng: &mut Rng) -> String {
+    let mut out = String::with_capacity(39);
+    for i in 0..8 {
+        if i > 0 {
+            out.push(':');
+        }
+        let seg = rng.u16(..);
+        let _ = write!(out, "{seg:04x}");
+    }
+    out
+}
+
+#[inline]
+pub fn gen_mac_address(rng: &mut Rng) -> String {
+    let mut out = String::with_capacity(17);
+    for i in 0..6 {
+        if i > 0 {
+            out.push(':');
+        }
+        let b = rng.u8(..);
+        let _ = write!(out, "{b:02x}");
+    }
+    out
+}
+
+#[inline]
+pub fn gen_domain_name(rng: &mut Rng) -> String {
+    let word = pick(rng, COMPANY_WORDS);
+    let tld = pick(rng, TLDS);
+    let mut out = String::with_capacity(word.len() + tld.len() + 1);
+    for b in word.bytes() {
+        out.push(b.to_ascii_lowercase() as char);
+    }
+    out.push('.');
+    out.push_str(tld);
+    out
+}
+
+#[inline]
+pub fn gen_user_agent(rng: &mut Rng) -> String {
+    pick(rng, USER_AGENTS).to_owned()
+}
+
+#[inline]
+pub fn gen_slug(rng: &mut Rng) -> String {
+    let w1 = pick(rng, LOREM_WORDS);
+    let w2 = pick(rng, LOREM_WORDS);
+    let w3 = pick(rng, LOREM_WORDS);
+    let mut out = String::with_capacity(w1.len() + w2.len() + w3.len() + 2);
+    let _ = write!(out, "{w1}-{w2}-{w3}");
+    out
+}
+
+#[inline]
+fn email_with_domain(rng: &mut Rng, domain: &str) -> String {
+    let first = pick(rng, FIRST_NAMES);
+    let last = pick(rng, LAST_NAMES);
+    let num = rng.u16(1..1000);
+    let mut out = String::with_capacity(first.len() + last.len() + domain.len() + 6);
+    for b in first.bytes() {
+        out.push(b.to_ascii_lowercase() as char);
+    }
+    out.push('.');
+    for b in last.bytes() {
+        out.push(b.to_ascii_lowercase() as char);
+    }
+    let _ = write!(out, "{num}@{domain}");
+    out
+}
+
+#[inline]
+pub fn gen_free_email(rng: &mut Rng) -> String {
+    let domain = pick(rng, FREE_EMAIL_DOMAINS);
+    email_with_domain(rng, domain)
+}
+
+#[inline]
+pub fn gen_company_email(rng: &mut Rng) -> String {
+    let domain = gen_domain_name(rng);
+    email_with_domain(rng, &domain)
+}
+
+#[inline]
+pub fn gen_safe_email(rng: &mut Rng) -> String {
+    let domain = pick(rng, &EMAIL_DOMAINS[..3]);
+    email_with_domain(rng, domain)
+}
+
+// --- Color, Geo & File providers ---
+
+#[inline]
+pub fn gen_hex_color(rng: &mut Rng) -> String {
+    let r = rng.u8(..);
+    let g = rng.u8(..);
+    let b = rng.u8(..);
+    let mut out = String::with_capacity(7);
+    let _ = write!(out, "#{r:02x}{g:02x}{b:02x}");
+    out
+}
+
+#[inline]
+pub fn gen_rgb_color(rng: &mut Rng) -> String {
+    let r = rng.u8(..);
+    let g = rng.u8(..);
+    let b = rng.u8(..);
+    let mut out = String::with_capacity(11);
+    let _ = write!(out, "{r},{g},{b}");
+    out
+}
+
+#[inline]
+pub fn gen_latitude(rng: &mut Rng) -> f64 {
+    let raw = -90.0 + rng.f64() * 180.0;
+    (raw * 1_000_000.0).round() / 1_000_000.0
+}
+
+#[inline]
+pub fn gen_longitude(rng: &mut Rng) -> f64 {
+    let raw = -180.0 + rng.f64() * 360.0;
+    (raw * 1_000_000.0).round() / 1_000_000.0
+}
+
+#[inline]
+pub fn gen_file_name(rng: &mut Rng, extension: Option<&str>) -> String {
+    let word = pick(rng, LOREM_WORDS);
+    let ext = extension.unwrap_or_else(|| pick(rng, FILE_EXTENSIONS));
+    let mut out = String::with_capacity(word.len() + ext.len() + 1);
+    let _ = write!(out, "{word}.{ext}");
+    out
+}
+
+#[inline]
+pub fn gen_mime_type(rng: &mut Rng) -> String {
+    pick(rng, MIME_TYPES).to_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -619,5 +866,62 @@ mod tests {
         assert_eq!(gen_words(&mut rng, 5).len(), 5);
         assert!(gen_paragraph(&mut rng, 3).ends_with('.'));
         assert_eq!(gen_paragraphs(&mut rng, 4).len(), 4);
+    }
+
+    fn luhn_valid(num: &str) -> bool {
+        let mut sum = 0u32;
+        let mut double = false;
+        for b in num.bytes().rev() {
+            let mut d = (b - b'0') as u32;
+            if double {
+                d *= 2;
+                if d > 9 {
+                    d -= 9;
+                }
+            }
+            sum += d;
+            double = !double;
+        }
+        sum.is_multiple_of(10)
+    }
+
+    #[test]
+    fn finance_internet_geo_color_file_valid() {
+        let mut rng = Rng::with_seed(4040);
+
+        for _ in 0..30 {
+            let cc = gen_credit_card_number(&mut rng, None);
+            assert!(cc.len() == 15 || cc.len() == 16);
+            assert!(luhn_valid(&cc));
+        }
+        assert!(luhn_valid(&gen_credit_card_number(&mut rng, Some("visa"))));
+        assert!(luhn_valid(&gen_credit_card_number(&mut rng, Some("amex"))));
+        assert_eq!(gen_credit_card_expire(&mut rng).len(), 5);
+        assert_eq!(gen_credit_card_security_code(&mut rng, Some("amex")).len(), 4);
+        assert!(!gen_credit_card_provider(&mut rng).is_empty());
+        assert!(gen_iban(&mut rng).len() >= 15);
+        assert_eq!(gen_currency_code(&mut rng).len(), 3);
+
+        assert_eq!(gen_ipv6(&mut rng).split(':').count(), 8);
+        assert_eq!(gen_mac_address(&mut rng).split(':').count(), 6);
+        assert!(gen_domain_name(&mut rng).contains('.'));
+        assert!(gen_user_agent(&mut rng).starts_with("Mozilla/"));
+        assert_eq!(gen_slug(&mut rng).split('-').count(), 3);
+        assert!(gen_free_email(&mut rng).contains('@'));
+        assert!(gen_company_email(&mut rng).contains('@'));
+        assert!(gen_safe_email(&mut rng).contains("@example."));
+
+        let hex = gen_hex_color(&mut rng);
+        assert_eq!(hex.len(), 7);
+        assert!(hex.starts_with('#'));
+        assert_eq!(gen_rgb_color(&mut rng).split(',').count(), 3);
+
+        let lat = gen_latitude(&mut rng);
+        let lon = gen_longitude(&mut rng);
+        assert!((-90.0..=90.0).contains(&lat));
+        assert!((-180.0..=180.0).contains(&lon));
+
+        assert!(gen_file_name(&mut rng, None).contains('.'));
+        assert!(gen_mime_type(&mut rng).contains('/'));
     }
 }

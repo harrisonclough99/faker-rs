@@ -233,3 +233,73 @@ def test_patterns_primitives_and_text() -> None:
     # Unique support
     assert len({fake.unique.numerify("##") for _ in range(20)}) == 20
     assert len({fake.unique.pystr(min_chars=8, max_chars=8) for _ in range(20)}) == 20
+
+
+def _luhn_ok(num: str) -> bool:
+    total = 0
+    for idx, ch in enumerate(reversed(num)):
+        d = int(ch)
+        if idx % 2 == 1:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+    return total % 10 == 0
+
+
+def test_finance_internet_geo_color_file() -> None:
+    fake = Faker(seed=404)
+
+    for card_type in (None, "visa", "mastercard", "amex", "discover"):
+        cc = fake.credit_card_number(card_type=card_type)
+        assert _luhn_ok(cc)
+
+    assert re.match(r"^\d{2}/\d{2}$", fake.credit_card_expire())
+    assert len(fake.credit_card_security_code("amex")) == 4
+    assert len(fake.credit_card_security_code()) == 3
+    assert len(fake.credit_card_provider()) > 0
+    assert len(fake.iban()) >= 15
+    assert len(fake.currency_code()) == 3
+
+    ipaddress.IPv6Address(fake.ipv6())
+    assert re.match(r"^([0-9a-f]{2}:){5}[0-9a-f]{2}$", fake.mac_address())
+    assert "." in fake.domain_name()
+    assert fake.user_agent().startswith("Mozilla/")
+    assert len(fake.slug().split("-")) == 3
+    assert "@" in fake.free_email()
+    assert "@" in fake.company_email()
+    assert "@example." in fake.safe_email()
+
+    assert re.match(r"^#[0-9a-f]{6}$", fake.hex_color())
+    assert len(fake.rgb_color().split(",")) == 3
+    assert -90.0 <= fake.latitude() <= 90.0
+    assert -180.0 <= fake.longitude() <= 180.0
+    assert "." in fake.file_name()
+    assert "/" in fake.mime_type()
+
+    # Batch methods
+    assert len(fake.credit_card_numbers(10)) == 10
+    assert len(fake.credit_card_expires(10)) == 10
+    assert len(fake.credit_card_security_codes(10)) == 10
+    assert len(fake.credit_card_providers(10)) == 10
+    assert len(fake.ibans(10)) == 10
+    assert len(fake.currency_codes(10)) == 10
+    assert len(fake.ipv6s(10)) == 10
+    assert len(fake.mac_addresses(10)) == 10
+    assert len(fake.domain_names(10)) == 10
+    assert len(fake.user_agents(10)) == 10
+    assert len(fake.slugs(10)) == 10
+    assert len(fake.free_emails(10)) == 10
+    assert len(fake.company_emails(10)) == 10
+    assert len(fake.safe_emails(10)) == 10
+    assert len(fake.hex_colors(10)) == 10
+    assert len(fake.rgb_colors(10)) == 10
+    assert len(fake.latitudes(10)) == 10
+    assert len(fake.longitudes(10)) == 10
+    assert len(fake.file_names(10)) == 10
+    assert len(fake.mime_types(10)) == 10
+
+    # Unique support
+    assert len({fake.unique.credit_card_number() for _ in range(25)}) == 25
+    assert len({fake.unique.iban() for _ in range(25)}) == 25
+    assert len({fake.unique.ipv6() for _ in range(25)}) == 25

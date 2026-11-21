@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-11-21
+
+### Added
+- **Finance providers**: Luhn-valid `credit_card_number()`, `credit_card_expire()`, `credit_card_security_code()`, `credit_card_provider()`, `iban()`, `currency_code()` (+ batch `*s(n)` methods).
+- **Internet providers**: `ipv6()`, `mac_address()`, `domain_name()`, `user_agent()`, `slug()`, `free_email()`, `company_email()`, `safe_email()` (+ batch `*s(n)` methods).
+- **Color, Geo & File providers**: `hex_color()`, `rgb_color()`, `latitude()`, `longitude()`, `file_name()`, `mime_type()` (+ batch `*s(n)` methods).
+- **Unique proxy**: Extended `fake.unique` with all new finance, internet, color, and file providers.
+
 ## [0.3.0] - 2026-11-21
 
 ### Added

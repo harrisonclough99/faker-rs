@@ -81,6 +81,20 @@ def main() -> None:
             rs_fake.paragraph,
             lambda: rs_fake.paragraphs_batch(COUNT),
         ),
+        (
+            "credit_card",
+            "credit_card_numbers",
+            py_fake.credit_card_number,
+            rs_fake.credit_card_number,
+            lambda: rs_fake.credit_card_numbers(COUNT),
+        ),
+        (
+            "ipv6",
+            "ipv6s",
+            py_fake.ipv6,
+            rs_fake.ipv6,
+            lambda: rs_fake.ipv6s(COUNT),
+        ),
     ]
 
     print(f"Benchmarking {COUNT:,} records per provider...\n")
