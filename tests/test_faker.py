@@ -1,10 +1,23 @@
+import csv
 import datetime
 import ipaddress
 import re
 import uuid
+from collections import OrderedDict
+from pathlib import Path
 
 import pytest
-from faker_rs import BaseProvider, Faker, UniquenessException, __version__
+from faker_rs import (
+    BaseProvider,
+    Dataset,
+    Derived,
+    Faker,
+    ForeignKey,
+    PrimaryKey,
+    UniquenessException,
+    Weighted,
+    __version__,
+)
 from faker_rs.exceptions import UniquenessException as ExcFromSubmodule
 
 
@@ -357,3 +370,170 @@ def test_locales_optional_and_add_provider() -> None:
     fr.add_provider(CustomProvider)
     tok = fr.custom_token()  # type: ignore[attr-defined]
     assert re.match(r"^tok-\d{4}$", tok)
+
+
+def test_en_gb_and_locale_postcode_phone_address() -> None:
+    uk_pc_re = re.compile(r"^[A-Z]{1,2}\d{1,2}[A-Z]?\s\d[A-Z]{2}$")
+    uk_phone_re = re.compile(r"^(\+44 7\d{3} \d{6}|07\d{3} \d{6}|020 \d{4} \d{4}|01\d{3} \d{6})$")
+
+    gb = Faker("en_GB", seed=701)
+    for _ in range(50):
+        pc = gb.postcode()
+        assert uk_pc_re.match(pc), f"Invalid UK postcode: {pc}"
+        ph = gb.phone_number()
+        assert uk_phone_re.match(ph), f"Invalid UK phone: {ph}"
+        addr = gb.address()
+        assert "\n" in addr
+        assert uk_pc_re.match(addr.split(", ")[-1]), f"UK address missing UK postcode: {addr}"
+
+    assert all(uk_pc_re.match(p) for p in gb.postcodes(25))
+    assert all(uk_phone_re.match(p) for p in gb.phone_numbers(25))
+    assert uk_pc_re.match(gb.unique.postcode())
+    assert uk_phone_re.match(gb.unique.phone_number())
+
+    de = Faker("de_DE", seed=702)
+    assert de.phone_number().startswith("+49 ")
+    assert re.match(r"^\d{5}$", de.postcode())
+
+    jp = Faker("ja_JP", seed=703)
+    assert jp.phone_number().startswith("+81 ")
+    assert re.match(r"^\d{3}-\d{4}$", jp.postcode())
+
+
+def test_weighted_and_unique_sampling() -> None:
+    fake = Faker(seed=704)
+    weights = OrderedDict([("Operational", 0.66), ("Maintenance", 0.28), ("Offline_Failed", 0.06)])
+
+    draws = [fake.random_element(weights) for _ in range(1000)]
+    op_rate = draws.count("Operational") / len(draws)
+    fail_rate = draws.count("Offline_Failed") / len(draws)
+    assert 0.58 <= op_rate <= 0.74
+    assert 0.02 <= fail_rate <= 0.12
+
+    batch = fake.random_choices(
+        ["Operational", "Maintenance", "Offline_Failed"], [66, 28, 6], k=500
+    )
+    assert len(batch) == 500
+    assert batch.count("Operational") > batch.count("Offline_Failed") * 4
+
+    # Weighted sampling without replacement
+    uniq_weighted = fake.random_elements(weights, length=3, unique=True)
+    assert set(uniq_weighted) == {"Operational", "Maintenance", "Offline_Failed"}
+
+    # random_sample without replacement
+    sample = fake.random_sample(list(range(20)), length=5)
+    assert len(sample) == 5 and len(set(sample)) == 5
+
+
+def test_bounded_datetime_and_iso8601_between() -> None:
+    fake = Faker(seed=705)
+
+    start = datetime.datetime(2026, 1, 1, 0, 0, 0)
+    end = datetime.datetime(2026, 2, 15, 23, 59, 59)
+
+    for _ in range(30):
+        dt = fake.date_time_between(start_date=start, end_date=end)
+        assert isinstance(dt, datetime.datetime)
+        assert start <= dt <= end
+
+        iso = fake.iso8601_between(start_date="2026-01-01T00:00:00", end_date="2026-02-15T23:59:59")
+        parsed = datetime.datetime.fromisoformat(iso)
+        assert start <= parsed <= end
+
+    # Relative windows (last 45 days and next 14 days)
+    past = fake.date_time_betweens(20, start_date="-45d", end_date="now")
+    future = fake.iso8601_betweens(20, start_date="now", end_date="+14d")
+    assert len(past) == 20 and all(isinstance(x, datetime.datetime) for x in past)
+    assert len(future) == 20
+    for s in future:
+        datetime.datetime.fromisoformat(s)
+
+    # date_between with datetime.date arguments
+    d_start = datetime.date(2026, 3, 1)
+    d_end = datetime.date(2026, 3, 31)
+    d = fake.date_between(start_date=d_start, end_date=d_end)
+    assert d_start <= d <= d_end
+
+
+def test_custom_domain_and_name_derived_emails() -> None:
+    fake = Faker("en_GB", seed=706)
+
+    assert fake.email(domain="nhs.net").endswith("@nhs.net")
+    assert fake.email(name="Dr. Sarah Connor", domain="nhs.net") == "sarah.connor@nhs.net"
+    assert fake.company_email(domain="nhs.net", name="Prof. Alan Turing") == "alan.turing@nhs.net"
+    assert re.match(
+        r"^jane\.doe\d+@nhs\.net$",
+        fake.email_from_name("Jane Doe", domain="nhs.net", add_digits=True),
+    )
+    assert all(e.endswith("@nhs.net") for e in fake.emails(20, domain="nhs.net"))
+    assert all(e.endswith("@nhs.net") for e in fake.company_emails(20, domain="nhs.net"))
+
+    # Unique email with duplicate name should disambiguate cleanly
+    e1 = fake.unique.email(name="Jane Doe", domain="nhs.net")
+    e2 = fake.unique.email(name="Jane Doe", domain="nhs.net")
+    assert e1 == "jane.doe@nhs.net"
+    assert e2 != e1 and e2.endswith("@nhs.net")
+
+
+def test_relational_dataset_and_csv_export(tmp_path: Path) -> None:
+    fake = Faker("en_GB", seed=707)
+    ds = Dataset(fake)
+
+    ds.add_table(
+        "zones",
+        rows=10,
+        columns={
+            "zone_id": PrimaryKey(prefix="ZN-", pad=3),
+            "zone_type": Weighted({"Ward": 0.7, "Clinic": 0.2, "ICU_HDU": 0.1}),
+            "lead_clinician_name": "name",
+            "lead_clinician_email": Derived(
+                lambda row, _: fake.email(name=row["lead_clinician_name"], domain="nhs.net")
+            ),
+        },
+    )
+    ds.add_table(
+        "assets",
+        rows=15,
+        columns={
+            "asset_id": PrimaryKey(prefix="AST-", pad=4),
+            "status": Weighted({"Operational": 0.66, "Maintenance": 0.28, "Offline_Failed": 0.06}),
+            "last_checked": lambda: fake.iso8601_between("-45d", "now"),
+        },
+    )
+    links = ds.add_join_table(
+        "link_asset_serves_zone",
+        left_table="assets",
+        left_pk="asset_id",
+        right_table="zones",
+        right_pk="zone_id",
+        min_links=1,
+        max_links=3,
+    )
+    ds.add_table(
+        "work_orders",
+        rows=20,
+        columns={
+            "wo_id": PrimaryKey(prefix="WO-", pad=4),
+            "asset_id": ForeignKey("assets", "asset_id"),
+            "created_at": lambda: fake.iso8601_between("-45d", "now"),
+            "clinical_risk_score": Derived(
+                lambda row, ctx: 10
+                if next(a for a in ctx["assets"] if a["asset_id"] == row["asset_id"])["status"]
+                == "Offline_Failed"
+                else 2
+            ),
+        },
+    )
+
+    assert len(ds.tables["zones"]) == 10
+    assert all(r["lead_clinician_email"].endswith("@nhs.net") for r in ds.tables["zones"])
+    pairs = [(r["asset_id"], r["zone_id"]) for r in links]
+    assert len(pairs) == len(set(pairs)) and len(pairs) >= 15
+    assert all(r["clinical_risk_score"] in {2, 10} for r in ds.tables["work_orders"])
+
+    written = ds.to_csv(tmp_path)
+    assert set(written.keys()) == {"zones", "assets", "link_asset_serves_zone", "work_orders"}
+    with (tmp_path / "zones.csv").open(encoding="utf-8") as fh:
+        csv_rows = list(csv.DictReader(fh))
+    assert len(csv_rows) == 10
+    assert csv_rows[0]["zone_id"] == "ZN-001"

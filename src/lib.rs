@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use fastrand::Rng;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyDate, PyDateTime, PyList, PyTuple};
+use pyo3::types::{PyDate, PyDateTime, PyDict, PyList, PyTuple};
 
 use crate::locale::{parse_locales, pick_locale, LocaleData};
 use crate::optional::OptionalProxy;
@@ -168,6 +168,7 @@ impl Faker {
         UniqueProxy {
             state: Arc::clone(&self.state),
             seen: Arc::clone(&self.seen),
+            locales: self.locales.clone(),
         }
     }
 
@@ -198,8 +199,14 @@ impl Faker {
         self.with_rng_loc(providers::gen_user_name_loc)
     }
 
-    fn email(&self) -> String {
-        self.with_rng_loc(providers::gen_email_loc)
+    #[pyo3(signature = (domain=None, name=None))]
+    fn email(&self, domain: Option<&str>, name: Option<&str>) -> String {
+        self.with_rng_loc(|rng, loc| providers::gen_email_custom(rng, loc, domain, name))
+    }
+
+    #[pyo3(signature = (name, domain=None, add_digits=false))]
+    fn email_from_name(&self, name: &str, domain: Option<&str>, add_digits: bool) -> String {
+        self.with_rng(|rng| providers::gen_email_from_name(rng, name, domain, add_digits))
     }
 
     fn address(&self) -> String {
@@ -215,7 +222,7 @@ impl Faker {
     }
 
     fn postcode(&self) -> String {
-        self.with_rng(providers::gen_postcode)
+        self.with_rng_loc(providers::gen_postcode_loc)
     }
 
     fn country(&self) -> String {
@@ -231,7 +238,7 @@ impl Faker {
     }
 
     fn phone_number(&self) -> String {
-        self.with_rng(providers::gen_phone_number)
+        self.with_rng_loc(providers::gen_phone_number_loc)
     }
 
     fn url(&self) -> String {
@@ -257,18 +264,47 @@ impl Faker {
         PyDateTime::new(py, y, m, d, hh, mm, ss, 0, None)
     }
 
-    #[pyo3(signature = (start_date="-30y", end_date="today"))]
+    #[pyo3(signature = (start_date=None, end_date=None))]
     fn date_between<'py>(
         &self,
         py: Python<'py>,
-        start_date: &str,
-        end_date: &str,
+        start_date: Option<Bound<'py, PyAny>>,
+        end_date: Option<Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, PyDate>> {
         let today = providers::current_utc_days();
-        let s = providers::parse_date_spec(start_date, today);
-        let e = providers::parse_date_spec(end_date, today);
+        let s = extract_date_days(start_date, "-30y", today)?;
+        let e = extract_date_days(end_date, "today", today)?;
         let (y, m, d) = self.with_rng(|rng| providers::gen_date_between_days(rng, s, e));
         PyDate::new(py, y, m, d)
+    }
+
+    #[pyo3(signature = (start_date=None, end_date=None))]
+    fn date_time_between<'py>(
+        &self,
+        py: Python<'py>,
+        start_date: Option<Bound<'py, PyAny>>,
+        end_date: Option<Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyDateTime>> {
+        let now = providers::current_utc_secs();
+        let s = extract_datetime_secs(start_date, "-30y", now)?;
+        let e = extract_datetime_secs(end_date, "now", now)?;
+        let (y, m, d, hh, mm, ss) =
+            self.with_rng(|rng| providers::gen_datetime_between_secs(rng, s, e));
+        PyDateTime::new(py, y, m, d, hh, mm, ss, 0, None)
+    }
+
+    #[pyo3(signature = (start_date=None, end_date=None))]
+    fn iso8601_between<'py>(
+        &self,
+        start_date: Option<Bound<'py, PyAny>>,
+        end_date: Option<Bound<'py, PyAny>>,
+    ) -> PyResult<String> {
+        let now = providers::current_utc_secs();
+        let s = extract_datetime_secs(start_date, "-30y", now)?;
+        let e = extract_datetime_secs(end_date, "now", now)?;
+        let (y, m, d, hh, mm, ss) =
+            self.with_rng(|rng| providers::gen_datetime_between_secs(rng, s, e));
+        Ok(providers::format_iso8601(y, m, d, hh, mm, ss))
     }
 
     #[pyo3(signature = (minimum_age=0, maximum_age=115))]
@@ -375,41 +411,30 @@ impl Faker {
         py: Python<'py>,
         elements: Option<Bound<'py, PyAny>>,
     ) -> PyResult<Py<PyAny>> {
-        let items: Vec<Py<PyAny>> = match elements {
-            Some(obj) => obj
-                .try_iter()?
-                .map(|item| item.map(|b| b.unbind()))
-                .collect::<PyResult<Vec<_>>>()?,
-            None => PyTuple::new(py, ["a", "b", "c"])?
-                .iter()
-                .map(|b| b.unbind())
-                .collect(),
-        };
+        let (items, weights) = extract_elements(py, elements)?;
         if items.is_empty() {
             return Err(PyValueError::new_err("Cannot choose from an empty sequence"));
         }
-        let idx = self.with_rng(|rng| rng.usize(..items.len()));
+        let idx = match weights {
+            Some(w) => {
+                let cum = build_cumulative_weights(&w)?;
+                self.with_rng(|rng| pick_weighted_idx(rng, &cum))
+            }
+            None => self.with_rng(|rng| rng.usize(..items.len())),
+        };
         Ok(items[idx].clone_ref(py))
     }
 
-    #[pyo3(signature = (elements=None, length=None, unique=false))]
+    #[pyo3(signature = (elements=None, length=None, unique=false, use_weighting=true))]
     fn random_elements<'py>(
         &self,
         py: Python<'py>,
         elements: Option<Bound<'py, PyAny>>,
         length: Option<usize>,
         unique: bool,
+        use_weighting: bool,
     ) -> PyResult<Bound<'py, PyList>> {
-        let mut items: Vec<Py<PyAny>> = match elements {
-            Some(obj) => obj
-                .try_iter()?
-                .map(|item| item.map(|b| b.unbind()))
-                .collect::<PyResult<Vec<_>>>()?,
-            None => PyTuple::new(py, ["a", "b", "c"])?
-                .iter()
-                .map(|b| b.unbind())
-                .collect(),
-        };
+        let (mut items, weights) = extract_elements(py, elements)?;
         if items.is_empty() {
             return Ok(PyList::empty(py));
         }
@@ -420,21 +445,118 @@ impl Faker {
             ));
         }
 
+        let active_weights = if use_weighting { weights } else { None };
         let mut chosen = Vec::with_capacity(target_len);
-        self.with_rng(|rng| {
-            if unique {
-                for i in 0..target_len {
-                    let j = rng.usize(i..items.len());
-                    items.swap(i, j);
-                    chosen.push(items[i].clone_ref(py));
-                }
-            } else {
-                for _ in 0..target_len {
-                    let idx = rng.usize(..items.len());
-                    chosen.push(items[idx].clone_ref(py));
+
+        match active_weights {
+            Some(mut w) => {
+                if unique {
+                    let positive_count = w.iter().filter(|&&x| x > 0.0).count();
+                    if target_len > positive_count {
+                        return Err(PyValueError::new_err(
+                            "Sample larger than number of positive-weight items when unique=True",
+                        ));
+                    }
+                    self.with_rng(|rng| {
+                        for _ in 0..target_len {
+                            let total: f64 = w.iter().sum();
+                            let r = rng.f64() * total;
+                            let mut acc = 0.0;
+                            let mut picked = w.len() - 1;
+                            for (i, &weight) in w.iter().enumerate() {
+                                acc += weight;
+                                if r < acc && weight > 0.0 {
+                                    picked = i;
+                                    break;
+                                }
+                            }
+                            chosen.push(items[picked].clone_ref(py));
+                            w[picked] = 0.0;
+                        }
+                    });
+                } else {
+                    let cum = build_cumulative_weights(&w)?;
+                    self.with_rng(|rng| {
+                        for _ in 0..target_len {
+                            let idx = pick_weighted_idx(rng, &cum);
+                            chosen.push(items[idx].clone_ref(py));
+                        }
+                    });
                 }
             }
-        });
+            None => {
+                self.with_rng(|rng| {
+                    if unique {
+                        for i in 0..target_len {
+                            let j = rng.usize(i..items.len());
+                            items.swap(i, j);
+                            chosen.push(items[i].clone_ref(py));
+                        }
+                    } else {
+                        for _ in 0..target_len {
+                            let idx = rng.usize(..items.len());
+                            chosen.push(items[idx].clone_ref(py));
+                        }
+                    }
+                });
+            }
+        }
+        PyList::new(py, chosen)
+    }
+
+    #[pyo3(signature = (elements=None, length=None))]
+    fn random_sample<'py>(
+        &self,
+        py: Python<'py>,
+        elements: Option<Bound<'py, PyAny>>,
+        length: Option<usize>,
+    ) -> PyResult<Bound<'py, PyList>> {
+        self.random_elements(py, elements, length, true, true)
+    }
+
+    #[pyo3(signature = (elements, weights=None, k=1))]
+    fn random_choices<'py>(
+        &self,
+        py: Python<'py>,
+        elements: Bound<'py, PyAny>,
+        weights: Option<Vec<f64>>,
+        k: usize,
+    ) -> PyResult<Bound<'py, PyList>> {
+        let (items, dict_weights) = extract_elements(py, Some(elements))?;
+        if items.is_empty() {
+            return Err(PyValueError::new_err("Cannot choose from an empty sequence"));
+        }
+        let eff_weights = match weights {
+            Some(w) => {
+                if w.len() != items.len() {
+                    return Err(PyValueError::new_err(
+                        "The number of weights does not match the population",
+                    ));
+                }
+                Some(w)
+            }
+            None => dict_weights,
+        };
+        let mut chosen = Vec::with_capacity(k);
+        match eff_weights {
+            Some(w) => {
+                let cum = build_cumulative_weights(&w)?;
+                self.with_rng(|rng| {
+                    for _ in 0..k {
+                        let idx = pick_weighted_idx(rng, &cum);
+                        chosen.push(items[idx].clone_ref(py));
+                    }
+                });
+            }
+            None => {
+                self.with_rng(|rng| {
+                    for _ in 0..k {
+                        let idx = rng.usize(..items.len());
+                        chosen.push(items[idx].clone_ref(py));
+                    }
+                });
+            }
+        }
         PyList::new(py, chosen)
     }
 
@@ -507,8 +629,9 @@ impl Faker {
         self.with_rng(providers::gen_free_email)
     }
 
-    fn company_email(&self) -> String {
-        self.with_rng(providers::gen_company_email)
+    #[pyo3(signature = (domain=None, name=None))]
+    fn company_email(&self, domain: Option<&str>, name: Option<&str>) -> String {
+        self.with_rng_loc(|rng, loc| providers::gen_company_email_custom(rng, loc, domain, name))
     }
 
     fn safe_email(&self) -> String {
@@ -559,8 +682,16 @@ impl Faker {
         self.batch_values_loc(py, n, providers::gen_user_name_loc)
     }
 
-    fn emails<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
-        self.batch_values_loc(py, n, providers::gen_email_loc)
+    #[pyo3(signature = (n, domain=None))]
+    fn emails<'py>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+        domain: Option<&str>,
+    ) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values_loc(py, n, |rng, loc| {
+            providers::gen_email_custom(rng, loc, domain, None)
+        })
     }
 
     fn addresses<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
@@ -576,7 +707,7 @@ impl Faker {
     }
 
     fn postcodes<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
-        self.batch_values(py, n, providers::gen_postcode)
+        self.batch_values_loc(py, n, providers::gen_postcode_loc)
     }
 
     fn countries<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
@@ -592,7 +723,7 @@ impl Faker {
     }
 
     fn phone_numbers<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
-        self.batch_values(py, n, providers::gen_phone_number)
+        self.batch_values_loc(py, n, providers::gen_phone_number_loc)
     }
 
     fn urls<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
@@ -639,17 +770,17 @@ impl Faker {
         PyList::new(py, items)
     }
 
-    #[pyo3(signature = (n, start_date="-30y", end_date="today"))]
+    #[pyo3(signature = (n, start_date=None, end_date=None))]
     fn date_betweens<'py>(
         &self,
         py: Python<'py>,
         n: usize,
-        start_date: &str,
-        end_date: &str,
+        start_date: Option<Bound<'py, PyAny>>,
+        end_date: Option<Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, PyList>> {
         let today = providers::current_utc_days();
-        let s = providers::parse_date_spec(start_date, today);
-        let e = providers::parse_date_spec(end_date, today);
+        let s = extract_date_days(start_date, "-30y", today)?;
+        let e = extract_date_days(end_date, "today", today)?;
         let mut guard = self.state.lock().expect("faker-rs RNG mutex poisoned");
         guard.sync_global_seed();
         let rng = &mut guard.rng;
@@ -660,6 +791,46 @@ impl Faker {
             })
             .collect::<PyResult<Vec<_>>>()?;
         PyList::new(py, items)
+    }
+
+    #[pyo3(signature = (n, start_date=None, end_date=None))]
+    fn date_time_betweens<'py>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+        start_date: Option<Bound<'py, PyAny>>,
+        end_date: Option<Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyList>> {
+        let now = providers::current_utc_secs();
+        let s = extract_datetime_secs(start_date, "-30y", now)?;
+        let e = extract_datetime_secs(end_date, "now", now)?;
+        let mut guard = self.state.lock().expect("faker-rs RNG mutex poisoned");
+        guard.sync_global_seed();
+        let rng = &mut guard.rng;
+        let items = (0..n)
+            .map(|_| {
+                let (y, m, d, hh, mm, ss) = providers::gen_datetime_between_secs(rng, s, e);
+                PyDateTime::new(py, y, m, d, hh, mm, ss, 0, None)
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        PyList::new(py, items)
+    }
+
+    #[pyo3(signature = (n, start_date=None, end_date=None))]
+    fn iso8601_betweens<'py>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+        start_date: Option<Bound<'py, PyAny>>,
+        end_date: Option<Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyList>> {
+        let now = providers::current_utc_secs();
+        let s = extract_datetime_secs(start_date, "-30y", now)?;
+        let e = extract_datetime_secs(end_date, "now", now)?;
+        self.batch_values(py, n, |rng| {
+            let (y, m, d, hh, mm, ss) = providers::gen_datetime_between_secs(rng, s, e);
+            providers::format_iso8601(y, m, d, hh, mm, ss)
+        })
     }
 
     #[pyo3(signature = (n, minimum_age=0, maximum_age=115))]
@@ -908,8 +1079,16 @@ impl Faker {
         self.batch_values(py, n, providers::gen_free_email)
     }
 
-    fn company_emails<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
-        self.batch_values(py, n, providers::gen_company_email)
+    #[pyo3(signature = (n, domain=None))]
+    fn company_emails<'py>(
+        &self,
+        py: Python<'py>,
+        n: usize,
+        domain: Option<&str>,
+    ) -> PyResult<Bound<'py, PyList>> {
+        self.batch_values_loc(py, n, |rng, loc| {
+            providers::gen_company_email_custom(rng, loc, domain, None)
+        })
     }
 
     fn safe_emails<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
@@ -946,6 +1125,128 @@ impl Faker {
 
     fn mime_types<'py>(&self, py: Python<'py>, n: usize) -> PyResult<Bound<'py, PyList>> {
         self.batch_values(py, n, providers::gen_mime_type)
+    }
+}
+
+type WeightedItems = (Vec<Py<PyAny>>, Option<Vec<f64>>);
+
+fn extract_elements<'py>(
+    py: Python<'py>,
+    elements: Option<Bound<'py, PyAny>>,
+) -> PyResult<WeightedItems> {
+    match elements {
+        None => {
+            let items = PyTuple::new(py, ["a", "b", "c"])?
+                .iter()
+                .map(|b| b.unbind())
+                .collect();
+            Ok((items, None))
+        }
+        Some(obj) => {
+            if let Ok(dict) = obj.cast::<PyDict>() {
+                let mut items = Vec::with_capacity(dict.len());
+                let mut weights = Vec::with_capacity(dict.len());
+                for (k, v) in dict.iter() {
+                    let w: f64 = v.extract()?;
+                    if w < 0.0 || !w.is_finite() {
+                        return Err(PyValueError::new_err("Weights must be finite and non-negative"));
+                    }
+                    items.push(k.unbind());
+                    weights.push(w);
+                }
+                Ok((items, Some(weights)))
+            } else {
+                let items = obj
+                    .try_iter()?
+                    .map(|item| item.map(|b| b.unbind()))
+                    .collect::<PyResult<Vec<_>>>()?;
+                Ok((items, None))
+            }
+        }
+    }
+}
+
+fn build_cumulative_weights(weights: &[f64]) -> PyResult<Vec<f64>> {
+    let mut cum = Vec::with_capacity(weights.len());
+    let mut total = 0.0;
+    for &w in weights {
+        if w < 0.0 || !w.is_finite() {
+            return Err(PyValueError::new_err("Weights must be finite and non-negative"));
+        }
+        total += w;
+        cum.push(total);
+    }
+    if total <= 0.0 {
+        return Err(PyValueError::new_err("Total of weights must be greater than zero"));
+    }
+    Ok(cum)
+}
+
+#[inline]
+fn pick_weighted_idx(rng: &mut Rng, cum: &[f64]) -> usize {
+    let total = *cum.last().unwrap_or(&1.0);
+    let r = rng.f64() * total;
+    let idx = cum.partition_point(|&c| c <= r);
+    idx.min(cum.len().saturating_sub(1))
+}
+
+fn extract_date_days(
+    obj: Option<Bound<'_, PyAny>>,
+    default_spec: &str,
+    today_days: i64,
+) -> PyResult<i64> {
+    match obj {
+        None => Ok(providers::parse_date_spec(default_spec, today_days)),
+        Some(val) => {
+            if let Ok(s) = val.extract::<String>() {
+                Ok(providers::parse_date_spec(&s, today_days))
+            } else if val.hasattr("year")? && val.hasattr("month")? && val.hasattr("day")? {
+                let y: i32 = val.getattr("year")?.extract()?;
+                let m: u8 = val.getattr("month")?.extract()?;
+                let d: u8 = val.getattr("day")?.extract()?;
+                Ok(providers::ymd_to_days(y, m, d))
+            } else {
+                Err(PyValueError::new_err(
+                    "Expected a relative date string, ISO date string, or datetime.date",
+                ))
+            }
+        }
+    }
+}
+
+fn extract_datetime_secs(
+    obj: Option<Bound<'_, PyAny>>,
+    default_spec: &str,
+    now_secs: i64,
+) -> PyResult<i64> {
+    match obj {
+        None => Ok(providers::parse_datetime_spec(default_spec, now_secs)),
+        Some(val) => {
+            if let Ok(s) = val.extract::<String>() {
+                Ok(providers::parse_datetime_spec(&s, now_secs))
+            } else if val.hasattr("year")? && val.hasattr("month")? && val.hasattr("day")? {
+                let y: i32 = val.getattr("year")?.extract()?;
+                let m: u8 = val.getattr("month")?.extract()?;
+                let d: u8 = val.getattr("day")?.extract()?;
+                let hh: u8 = val
+                    .getattr("hour")
+                    .and_then(|v| v.extract())
+                    .unwrap_or(0);
+                let mm: u8 = val
+                    .getattr("minute")
+                    .and_then(|v| v.extract())
+                    .unwrap_or(0);
+                let ss: u8 = val
+                    .getattr("second")
+                    .and_then(|v| v.extract())
+                    .unwrap_or(0);
+                Ok(providers::ymdhms_to_secs(y, m, d, hh, mm, ss))
+            } else {
+                Err(PyValueError::new_err(
+                    "Expected a relative datetime string, ISO string, or datetime.date/datetime",
+                ))
+            }
+        }
     }
 }
 

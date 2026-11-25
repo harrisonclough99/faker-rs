@@ -3,12 +3,15 @@ use std::fmt::Write as _;
 use fastrand::Rng;
 
 use crate::data::{
-    CARD_PROVIDERS, CITIES, COMPANY_SUFFIXES, COMPANY_WORDS, COUNTRIES, CURRENCY_CODES,
-    EMAIL_DOMAINS, FILE_EXTENSIONS, FIRST_NAMES, FREE_EMAIL_DOMAINS, IBAN_PREFIXES, JOBS,
-    LAST_NAMES, LOREM_WORDS, MIME_TYPES, SECONDARY_PREFIXES, STATES, STREET_NAMES,
-    STREET_SUFFIXES, TLDS, USER_AGENTS,
+    CARD_PROVIDERS, COMPANY_SUFFIXES, COMPANY_WORDS, COUNTRIES, CURRENCY_CODES, EMAIL_DOMAINS,
+    FILE_EXTENSIONS, FIRST_NAMES, FREE_EMAIL_DOMAINS, IBAN_PREFIXES, JOBS, LAST_NAMES, LOREM_WORDS,
+    MIME_TYPES, SECONDARY_PREFIXES, TLDS, USER_AGENTS,
 };
-use crate::locale::{LocaleData, EN_US};
+#[cfg(test)]
+use crate::data::{CITIES, STATES, STREET_NAMES, STREET_SUFFIXES};
+use crate::locale::LocaleData;
+#[cfg(test)]
+use crate::locale::EN_US;
 
 #[inline]
 fn pick<'a>(rng: &mut Rng, slice: &'a [&'a str]) -> &'a str {
@@ -26,6 +29,7 @@ pub fn gen_name_loc(rng: &mut Rng, loc: &LocaleData) -> String {
     out
 }
 
+#[cfg(test)]
 #[inline]
 pub fn gen_name(rng: &mut Rng) -> String {
     gen_name_loc(rng, &EN_US)
@@ -60,11 +64,66 @@ pub fn gen_user_name_loc(rng: &mut Rng, loc: &LocaleData) -> String {
 
 #[inline]
 pub fn gen_email_loc(rng: &mut Rng, loc: &LocaleData) -> String {
+    gen_email_custom(rng, loc, None, None)
+}
+
+fn is_name_title(word: &str) -> bool {
+    matches!(
+        word,
+        "dr" | "mr" | "mrs" | "ms" | "miss" | "prof" | "sir" | "dame" | "rev"
+    )
+}
+
+pub fn gen_email_from_name(
+    rng: &mut Rng,
+    full_name: &str,
+    domain: Option<&str>,
+    add_digits: bool,
+) -> String {
+    let dom = domain.unwrap_or_else(|| pick(rng, EMAIL_DOMAINS));
+    let mut parts: Vec<String> = Vec::with_capacity(4);
+    for raw in full_name.split_whitespace() {
+        let cleaned: String = raw
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .map(|c| c.to_ascii_lowercase())
+            .collect();
+        if cleaned.is_empty() || is_name_title(&cleaned) {
+            continue;
+        }
+        parts.push(cleaned);
+    }
+    let local = if parts.is_empty() {
+        "user".to_owned()
+    } else {
+        parts.join(".")
+    };
+    let mut out = String::with_capacity(local.len() + dom.len() + 6);
+    out.push_str(&local);
+    if add_digits {
+        let num = rng.u16(1..1000);
+        let _ = write!(out, "{num}");
+    }
+    out.push('@');
+    out.push_str(dom);
+    out
+}
+
+#[inline]
+pub fn gen_email_custom(
+    rng: &mut Rng,
+    loc: &LocaleData,
+    domain: Option<&str>,
+    name: Option<&str>,
+) -> String {
+    if let Some(full_name) = name {
+        return gen_email_from_name(rng, full_name, domain, false);
+    }
     let first = pick(rng, loc.first_names);
     let last = pick(rng, loc.last_names);
-    let domain = pick(rng, EMAIL_DOMAINS);
+    let dom = domain.unwrap_or_else(|| pick(rng, EMAIL_DOMAINS));
     let num = rng.u16(1..1000);
-    let mut out = String::with_capacity(first.len() + last.len() + domain.len() + 6);
+    let mut out = String::with_capacity(first.len() + last.len() + dom.len() + 6);
     for b in first.bytes() {
         out.push(b.to_ascii_lowercase() as char);
     }
@@ -72,26 +131,209 @@ pub fn gen_email_loc(rng: &mut Rng, loc: &LocaleData) -> String {
     for b in last.bytes() {
         out.push(b.to_ascii_lowercase() as char);
     }
-    let _ = write!(out, "{num}@{domain}");
+    let _ = write!(out, "{num}@{dom}");
     out
 }
 
 #[inline]
+pub fn gen_company_email_custom(
+    rng: &mut Rng,
+    loc: &LocaleData,
+    domain: Option<&str>,
+    name: Option<&str>,
+) -> String {
+    match domain {
+        Some(dom) => gen_email_custom(rng, loc, Some(dom), name),
+        None => {
+            let dom = gen_domain_name(rng);
+            gen_email_custom(rng, loc, Some(&dom), name)
+        }
+    }
+}
+
+const UK_POSTCODE_AREAS: &[&str] = &[
+    "SW", "EC", "WC", "W", "E", "N", "NW", "SE", "M", "B", "L", "LS", "G", "EH", "CF", "BT", "OX",
+    "CB", "YO", "BA", "BN", "BS", "NG", "S", "NE",
+];
+const UK_INWARD_LETTERS: &[u8] = b"ABDEFGHJLNPQRSTUWXYZ";
+
+#[inline]
+pub fn gen_postcode_loc(rng: &mut Rng, loc: &LocaleData) -> String {
+    match loc.code {
+        "en_GB" => {
+            let area = pick(rng, UK_POSTCODE_AREAS);
+            let district = rng.u8(1..=20);
+            let sector = rng.u8(0..=9);
+            let u1 = UK_INWARD_LETTERS[rng.usize(..UK_INWARD_LETTERS.len())] as char;
+            let u2 = UK_INWARD_LETTERS[rng.usize(..UK_INWARD_LETTERS.len())] as char;
+            let mut out = String::with_capacity(8);
+            if district < 10 && rng.u8(0..4) == 0 {
+                let extra = UK_INWARD_LETTERS[rng.usize(..UK_INWARD_LETTERS.len())] as char;
+                let _ = write!(out, "{area}{district}{extra} {sector}{u1}{u2}");
+            } else {
+                let _ = write!(out, "{area}{district} {sector}{u1}{u2}");
+            }
+            out
+        }
+        "de_DE" => {
+            let plz = rng.u32(1000..=99999);
+            let mut out = String::with_capacity(5);
+            let _ = write!(out, "{plz:05}");
+            out
+        }
+        "fr_FR" => {
+            let cp = rng.u32(1000..=95999);
+            let mut out = String::with_capacity(5);
+            let _ = write!(out, "{cp:05}");
+            out
+        }
+        "es_ES" => {
+            let cp = rng.u32(1000..=52999);
+            let mut out = String::with_capacity(5);
+            let _ = write!(out, "{cp:05}");
+            out
+        }
+        "ja_JP" => {
+            let p1 = rng.u16(100..=999);
+            let p2 = rng.u16(0..=9999);
+            let mut out = String::with_capacity(8);
+            let _ = write!(out, "{p1:03}-{p2:04}");
+            out
+        }
+        _ => {
+            let zip = rng.u32(10000..=99999);
+            let mut out = String::with_capacity(5);
+            let _ = write!(out, "{zip:05}");
+            out
+        }
+    }
+}
+
+#[inline]
+pub fn gen_phone_number_loc(rng: &mut Rng, loc: &LocaleData) -> String {
+    match loc.code {
+        "en_GB" => {
+            let mut out = String::with_capacity(16);
+            match rng.u8(0..4) {
+                0 => {
+                    let a = rng.u16(100..=999);
+                    let b = rng.u32(100000..=999999);
+                    let _ = write!(out, "+44 7{a:03} {b:06}");
+                }
+                1 => {
+                    let a = rng.u16(100..=999);
+                    let b = rng.u32(100000..=999999);
+                    let _ = write!(out, "07{a:03} {b:06}");
+                }
+                2 => {
+                    let a = rng.u16(7000..=8999);
+                    let b = rng.u16(1000..=9999);
+                    let _ = write!(out, "020 {a:04} {b:04}");
+                }
+                _ => {
+                    let area = rng.u16(100..=999);
+                    let sub = rng.u32(100000..=999999);
+                    let _ = write!(out, "01{area:03} {sub:06}");
+                }
+            }
+            out
+        }
+        "de_DE" => {
+            let area = rng.u16(151..=999);
+            let sub = rng.u32(1000000..=9999999);
+            let mut out = String::with_capacity(16);
+            let _ = write!(out, "+49 {area:03} {sub:07}");
+            out
+        }
+        "fr_FR" => {
+            let p1 = rng.u8(1..=7);
+            let p2 = rng.u8(0..=99);
+            let p3 = rng.u8(0..=99);
+            let p4 = rng.u8(0..=99);
+            let p5 = rng.u8(0..=99);
+            let mut out = String::with_capacity(18);
+            let _ = write!(out, "+33 {p1} {p2:02} {p3:02} {p4:02} {p5:02}");
+            out
+        }
+        "es_ES" => {
+            let first = match rng.u8(0..3) {
+                0 => 6,
+                1 => 7,
+                _ => 9,
+            };
+            let p1 = rng.u8(0..=99);
+            let p2 = rng.u16(0..=999);
+            let p3 = rng.u16(0..=999);
+            let mut out = String::with_capacity(16);
+            let _ = write!(out, "+34 {first}{p1:02} {p2:03} {p3:03}");
+            out
+        }
+        "ja_JP" => {
+            let p1 = match rng.u8(0..3) {
+                0 => 3,
+                1 => 80,
+                _ => 90,
+            };
+            let p2 = rng.u16(1000..=9999);
+            let p3 = rng.u16(1000..=9999);
+            let mut out = String::with_capacity(16);
+            let _ = write!(out, "+81 {p1:02}-{p2:04}-{p3:04}");
+            out
+        }
+        _ => {
+            let area = rng.u16(200..=999);
+            let exchange = rng.u16(200..=999);
+            let line = rng.u16(0..=9999);
+            let mut out = String::with_capacity(14);
+            let _ = write!(out, "({area:03}) {exchange:03}-{line:04}");
+            out
+        }
+    }
+}
+
+#[inline]
 pub fn gen_address_loc(rng: &mut Rng, loc: &LocaleData) -> String {
-    let number = rng.u16(100..10000);
+    let number = rng.u16(1..10000);
     let street = pick(rng, loc.streets);
     let suffix = pick(rng, loc.street_suffixes);
     let city = pick(rng, loc.cities);
-    let state = pick(rng, loc.states);
-    let zip = rng.u32(10000..99999);
+    let postcode = gen_postcode_loc(rng, loc);
 
     let mut out = String::with_capacity(64);
-    if rng.u8(0..4) == 0 {
-        let sec = pick(rng, SECONDARY_PREFIXES);
-        let unit = rng.u16(1..999);
-        let _ = write!(out, "{number} {street} {suffix} {sec} {unit}\n{city}, {state} {zip:05}");
-    } else {
-        let _ = write!(out, "{number} {street} {suffix}\n{city}, {state} {zip:05}");
+    match loc.code {
+        "en_GB" => {
+            if rng.u8(0..4) == 0 {
+                let flat = rng.u16(1..200);
+                let _ = write!(out, "Flat {flat}, {number} {street} {suffix}\n{city}, {postcode}");
+            } else {
+                let _ = write!(out, "{number} {street} {suffix}\n{city}, {postcode}");
+            }
+        }
+        "de_DE" => {
+            let _ = write!(out, "{street}{suffix} {number}\n{postcode} {city}");
+        }
+        "fr_FR" => {
+            let _ = write!(out, "{number} {suffix} {street}\n{postcode} {city}");
+        }
+        "es_ES" => {
+            let _ = write!(out, "{suffix} {street}, {number}\n{postcode} {city}");
+        }
+        "ja_JP" => {
+            let _ = write!(out, "{city} {street} {suffix} {number}\n{postcode}");
+        }
+        _ => {
+            let state = pick(rng, loc.states);
+            if rng.u8(0..4) == 0 {
+                let sec = pick(rng, SECONDARY_PREFIXES);
+                let unit = rng.u16(1..999);
+                let _ = write!(
+                    out,
+                    "{number} {street} {suffix} {sec} {unit}\n{city}, {state} {postcode}"
+                );
+            } else {
+                let _ = write!(out, "{number} {street} {suffix}\n{city}, {state} {postcode}");
+            }
+        }
     }
     out
 }
@@ -106,6 +348,7 @@ pub fn gen_state_loc(rng: &mut Rng, loc: &LocaleData) -> String {
     pick(rng, loc.states).to_owned()
 }
 
+#[cfg(test)]
 #[inline]
 pub fn gen_email(rng: &mut Rng) -> String {
     let first = pick(rng, FIRST_NAMES);
@@ -124,6 +367,7 @@ pub fn gen_email(rng: &mut Rng) -> String {
     out
 }
 
+#[cfg(test)]
 #[inline]
 pub fn gen_address(rng: &mut Rng) -> String {
     let number = rng.u16(100..10000);
@@ -250,13 +494,106 @@ pub fn days_to_ymd(days: i64) -> (i32, u8, u8) {
 }
 
 #[inline]
-pub fn current_utc_days() -> i64 {
+pub fn current_utc_secs() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
+    SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    secs / 86_400
+        .unwrap_or(0)
+}
+
+#[inline]
+pub fn current_utc_days() -> i64 {
+    current_utc_secs() / 86_400
+}
+
+#[inline]
+pub fn ymdhms_to_secs(y: i32, m: u8, d: u8, hh: u8, mm: u8, ss: u8) -> i64 {
+    ymd_to_days(y, m, d) * 86_400 + (hh as i64) * 3_600 + (mm as i64) * 60 + (ss as i64)
+}
+
+#[inline]
+pub fn secs_to_ymdhms(secs: i64) -> (i32, u8, u8, u8, u8, u8) {
+    let days = secs.div_euclid(86_400);
+    let rem = secs.rem_euclid(86_400);
+    let (y, m, d) = days_to_ymd(days);
+    let hh = (rem / 3_600) as u8;
+    let mm = ((rem % 3_600) / 60) as u8;
+    let ss = (rem % 60) as u8;
+    (y, m, d, hh, mm, ss)
+}
+
+#[inline]
+pub fn format_iso8601(y: i32, m: u8, d: u8, hh: u8, mm: u8, ss: u8) -> String {
+    let mut out = String::with_capacity(19);
+    let _ = write!(out, "{y:04}-{m:02}-{d:02}T{hh:02}:{mm:02}:{ss:02}");
+    out
+}
+
+fn parse_iso_ymdhms(s: &str) -> Option<(i32, u8, u8, u8, u8, u8)> {
+    let trimmed = s.trim().trim_end_matches('Z');
+    let (date_part, time_part) = trimmed
+        .split_once('T')
+        .or_else(|| trimmed.split_once(' '))?;
+    let (y, m, d) = parse_iso_ymd(date_part)?;
+    let time_core = time_part.split('.').next().unwrap_or(time_part);
+    let mut parts = time_core.split(':');
+    let hh: u8 = parts.next()?.parse().ok()?;
+    let mm: u8 = parts.next()?.parse().ok()?;
+    let ss: u8 = parts.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+    if hh > 23 || mm > 59 || ss > 59 {
+        return None;
+    }
+    Some((y, m, d, hh, mm, ss))
+}
+
+pub fn parse_datetime_spec(spec: &str, now_secs: i64) -> i64 {
+    let s = spec.trim();
+    if s.eq_ignore_ascii_case("now") {
+        return now_secs;
+    }
+    if s.eq_ignore_ascii_case("today") {
+        return now_secs.div_euclid(86_400) * 86_400;
+    }
+    if let Some((y, m, d, hh, mm, ss)) = parse_iso_ymdhms(s) {
+        return ymdhms_to_secs(y, m, d, hh, mm, ss);
+    }
+    if let Some((y, m, d)) = parse_iso_ymd(s) {
+        return ymd_to_days(y, m, d) * 86_400;
+    }
+    if let Some(num_str) = s.strip_suffix("min") {
+        if let Ok(val) = num_str.parse::<i64>() {
+            return now_secs + val * 60;
+        }
+    }
+    if s.len() >= 2 {
+        let unit = s.as_bytes()[s.len() - 1];
+        if let Ok(val) = s[..s.len() - 1].parse::<i64>() {
+            return match unit {
+                b's' => now_secs + val,
+                b'h' => now_secs + val * 3_600,
+                b'd' => now_secs + val * 86_400,
+                b'w' => now_secs + val * 7 * 86_400,
+                b'm' | b'M' => now_secs + val * 30 * 86_400,
+                b'y' => now_secs + val * 365 * 86_400,
+                _ => now_secs,
+            };
+        }
+    }
+    now_secs
+}
+
+#[inline]
+pub fn gen_datetime_between_secs(
+    rng: &mut Rng,
+    start_secs: i64,
+    end_secs: i64,
+) -> (i32, u8, u8, u8, u8, u8) {
+    if start_secs >= end_secs {
+        return secs_to_ymdhms(start_secs);
+    }
+    let picked = rng.i64(start_secs..=end_secs);
+    secs_to_ymdhms(picked)
 }
 
 pub fn parse_date_spec(spec: &str, today_days: i64) -> i64 {
@@ -366,16 +703,19 @@ pub fn gen_uuid4(rng: &mut Rng) -> String {
     unsafe { String::from_utf8_unchecked(buf.to_vec()) }
 }
 
+#[cfg(test)]
 #[inline]
 pub fn gen_first_name(rng: &mut Rng) -> String {
     pick(rng, FIRST_NAMES).to_owned()
 }
 
+#[cfg(test)]
 #[inline]
 pub fn gen_last_name(rng: &mut Rng) -> String {
     pick(rng, LAST_NAMES).to_owned()
 }
 
+#[cfg(test)]
 #[inline]
 pub fn gen_user_name(rng: &mut Rng) -> String {
     let first = pick(rng, FIRST_NAMES);
@@ -393,16 +733,19 @@ pub fn gen_user_name(rng: &mut Rng) -> String {
     out
 }
 
+#[cfg(test)]
 #[inline]
 pub fn gen_city(rng: &mut Rng) -> String {
     pick(rng, CITIES).to_owned()
 }
 
+#[cfg(test)]
 #[inline]
 pub fn gen_state(rng: &mut Rng) -> String {
     pick(rng, STATES).to_owned()
 }
 
+#[cfg(test)]
 #[inline]
 pub fn gen_postcode(rng: &mut Rng) -> String {
     let zip = rng.u32(10000..=99999);
@@ -437,6 +780,7 @@ pub fn gen_job(rng: &mut Rng) -> String {
     pick(rng, JOBS).to_owned()
 }
 
+#[cfg(test)]
 #[inline]
 pub fn gen_phone_number(rng: &mut Rng) -> String {
     let area = rng.u16(200..=999);
@@ -902,6 +1246,7 @@ pub fn gen_free_email(rng: &mut Rng) -> String {
     email_with_domain(rng, domain)
 }
 
+#[cfg(test)]
 #[inline]
 pub fn gen_company_email(rng: &mut Rng) -> String {
     let domain = gen_domain_name(rng);

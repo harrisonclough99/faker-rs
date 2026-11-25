@@ -70,8 +70,13 @@ impl OptionalProxy {
     }
 
     #[pyo3(signature = (p=0.5))]
+    fn postcode(&self, p: f64) -> Option<String> {
+        self.maybe(p, providers::gen_postcode_loc)
+    }
+
+    #[pyo3(signature = (p=0.5))]
     fn phone_number(&self, p: f64) -> Option<String> {
-        self.maybe(p, |rng, _| providers::gen_phone_number(rng))
+        self.maybe(p, providers::gen_phone_number_loc)
     }
 
     #[pyo3(signature = (p=0.5))]

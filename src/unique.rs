@@ -6,6 +6,7 @@ use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 
+use crate::locale::{pick_locale, LocaleData};
 use crate::providers;
 use crate::RngState;
 
@@ -20,6 +21,7 @@ pub(crate) type SeenMap = HashMap<&'static str, HashSet<String>>;
 pub struct UniqueProxy {
     pub(crate) state: Arc<Mutex<RngState>>,
     pub(crate) seen: Arc<Mutex<SeenMap>>,
+    pub(crate) locales: Vec<&'static LocaleData>,
 }
 
 impl UniqueProxy {
@@ -44,6 +46,29 @@ impl UniqueProxy {
             "Got duplicated values after {MAX_UNIQUE_RETRIES} iterations for '{key}'."
         )))
     }
+
+    fn next_unique_loc(
+        &self,
+        key: &'static str,
+        mut gen: impl FnMut(&mut Rng, &'static LocaleData) -> String,
+    ) -> PyResult<String> {
+        let mut rng_guard = self.state.lock().expect("faker-rs RNG mutex poisoned");
+        rng_guard.sync_global_seed();
+        let mut seen_guard = self.seen.lock().expect("faker-rs unique mutex poisoned");
+        let set = seen_guard.entry(key).or_default();
+
+        for _ in 0..MAX_UNIQUE_RETRIES {
+            let loc = pick_locale(&mut rng_guard.rng, &self.locales);
+            let val = gen(&mut rng_guard.rng, loc);
+            if set.insert(val.clone()) {
+                return Ok(val);
+            }
+        }
+
+        Err(UniquenessException::new_err(format!(
+            "Got duplicated values after {MAX_UNIQUE_RETRIES} iterations for '{key}'."
+        )))
+    }
 }
 
 #[pymethods]
@@ -55,39 +80,48 @@ impl UniqueProxy {
     }
 
     fn name(&self) -> PyResult<String> {
-        self.next_unique("name", providers::gen_name)
+        self.next_unique_loc("name", providers::gen_name_loc)
     }
 
     fn first_name(&self) -> PyResult<String> {
-        self.next_unique("first_name", providers::gen_first_name)
+        self.next_unique_loc("first_name", providers::gen_first_name_loc)
     }
 
     fn last_name(&self) -> PyResult<String> {
-        self.next_unique("last_name", providers::gen_last_name)
+        self.next_unique_loc("last_name", providers::gen_last_name_loc)
     }
 
     fn user_name(&self) -> PyResult<String> {
-        self.next_unique("user_name", providers::gen_user_name)
+        self.next_unique_loc("user_name", providers::gen_user_name_loc)
     }
 
-    fn email(&self) -> PyResult<String> {
-        self.next_unique("email", providers::gen_email)
+    #[pyo3(signature = (domain=None, name=None))]
+    fn email(&self, domain: Option<&str>, name: Option<&str>) -> PyResult<String> {
+        let mut attempt = 0usize;
+        self.next_unique_loc("email", |rng, loc| {
+            let add_digits = attempt > 0;
+            attempt += 1;
+            match name {
+                Some(n) => providers::gen_email_from_name(rng, n, domain, add_digits),
+                None => providers::gen_email_custom(rng, loc, domain, None),
+            }
+        })
     }
 
     fn address(&self) -> PyResult<String> {
-        self.next_unique("address", providers::gen_address)
+        self.next_unique_loc("address", providers::gen_address_loc)
     }
 
     fn city(&self) -> PyResult<String> {
-        self.next_unique("city", providers::gen_city)
+        self.next_unique_loc("city", providers::gen_city_loc)
     }
 
     fn state(&self) -> PyResult<String> {
-        self.next_unique("state", providers::gen_state)
+        self.next_unique_loc("state", providers::gen_state_loc)
     }
 
     fn postcode(&self) -> PyResult<String> {
-        self.next_unique("postcode", providers::gen_postcode)
+        self.next_unique_loc("postcode", providers::gen_postcode_loc)
     }
 
     fn country(&self) -> PyResult<String> {
@@ -103,7 +137,7 @@ impl UniqueProxy {
     }
 
     fn phone_number(&self) -> PyResult<String> {
-        self.next_unique("phone_number", providers::gen_phone_number)
+        self.next_unique_loc("phone_number", providers::gen_phone_number_loc)
     }
 
     fn url(&self) -> PyResult<String> {
@@ -190,8 +224,20 @@ impl UniqueProxy {
         self.next_unique("free_email", providers::gen_free_email)
     }
 
-    fn company_email(&self) -> PyResult<String> {
-        self.next_unique("company_email", providers::gen_company_email)
+    #[pyo3(signature = (domain=None, name=None))]
+    fn company_email(&self, domain: Option<&str>, name: Option<&str>) -> PyResult<String> {
+        let mut attempt = 0usize;
+        self.next_unique_loc("company_email", |rng, loc| {
+            let add_digits = attempt > 0;
+            attempt += 1;
+            match name {
+                Some(n) => {
+                    let dom = domain.map(str::to_owned).unwrap_or_else(|| providers::gen_domain_name(rng));
+                    providers::gen_email_from_name(rng, n, Some(&dom), add_digits)
+                }
+                None => providers::gen_company_email_custom(rng, loc, domain, None),
+            }
+        })
     }
 
     fn safe_email(&self) -> PyResult<String> {

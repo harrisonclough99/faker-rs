@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-11-25
+
+### Added
+- **Locale-aware `postcode()`, `phone_number()`, and `address()`**: Full UK (`en_GB`) Royal Mail postcodes (e.g., `SW14 2AB`) and UK phone numbers (`+44 7...`, `07...`, `020 ...`, `01...`), plus localized formats for `de_DE`, `fr_FR`, `es_ES`, and `ja_JP` across single, batch, `unique`, and `optional` APIs.
+- **Weighted & unique sampling**: `random_element()` and `random_elements(..., unique=..., use_weighting=...)` now accept weighted `dict` / `OrderedDict` mappings; added `random_sample(elements, length=...)` and batch `random_choices(elements, weights=..., k=...)`.
+- **Bounded datetime generation**: Added `date_time_between(start_date, end_date)`, `iso8601_between(start_date, end_date)`, and batch `date_time_betweens(n, ...)` / `iso8601_betweens(n, ...)`, accepting relative strings (`"-45d"`, `"+14d"`, `"-12h"`, `"-30min"`), ISO strings, or Python `datetime.date`/`datetime.datetime` objects.
+- **Custom-domain & name-derived emails**: `email(domain=..., name=...)`, `company_email(domain=..., name=...)`, `email_from_name(name, domain=..., add_digits=...)`, and `emails(n, domain=...)` / `company_emails(n, domain=...)`.
+- **Relational dataset & CSV helpers** (`faker_rs.dataset`): Added `Dataset`, `PrimaryKey`, `ForeignKey`, `Weighted`, `Derived`, `add_join_table(...)`, and `export_csv(...)` for deterministic multi-table synthetic datasets.
+
 ## [0.6.0] - 2026-11-21
 
 ### Added

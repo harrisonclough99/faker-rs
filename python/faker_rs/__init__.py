@@ -11,6 +11,7 @@ from ._faker_rs import (
     UniqueProxy,
     __version__,
 )
+from .dataset import Dataset, Derived, ForeignKey, PrimaryKey, Weighted, export_csv
 from .providers import BaseProvider
 
 
@@ -30,9 +31,15 @@ class Faker(_RustFaker):
 
 __all__ = [
     "BaseProvider",
+    "Dataset",
+    "Derived",
     "Faker",
+    "ForeignKey",
     "OptionalProxy",
+    "PrimaryKey",
     "UniqueProxy",
     "UniquenessException",
+    "Weighted",
     "__version__",
+    "export_csv",
 ]
